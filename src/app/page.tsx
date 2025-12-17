@@ -1,5 +1,6 @@
 'use client';
 
+import Image from "next/image";
 import React from 'react';
 import Link from 'next/link';
 import { ShieldCheck, Users, TrendingUp, ArrowRight, Menu, Star, Facebook, Twitter, Instagram } from 'lucide-react';
@@ -39,12 +40,14 @@ export default function LandingPage() {
         {/* --- Hero Section --- */}
         <section className="relative w-full py-20 lg:py-32 px-6 flex flex-col items-center text-center overflow-hidden">
           
-          {/* Background Image Container */}
+          {/* Background Image Container - OPTIMIZED */}
           <div className="absolute inset-0 z-0">
-            <img 
+            <Image 
               src="/images/home.png" 
               alt="Background" 
-              className="w-full h-full object-cover"
+              fill
+              priority // Forces this to load instantly
+              className="object-cover"
             />
             <div className="absolute inset-0 bg-sky-300/50 mix-blend-multiply"></div>
           </div>
@@ -118,21 +121,25 @@ export default function LandingPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
                <div className="relative group">
                  <div className="absolute -inset-1 bg-gradient-to-r from-green-600 to-emerald-600 rounded-3xl blur opacity-25 group-hover:opacity-50 transition duration-1000 group-hover:duration-200"></div>
+                 {/* OPTIMIZED: Ladies Image */}
                  <div className="relative h-[180px] md:h-[250px] rounded-2xl overflow-hidden shadow-2xl bg-gray-100">
-                   <img 
+                   <Image 
                      src="/images/ladies.png" 
                      alt="Community Members" 
-                     className="w-full h-full object-cover transform transition duration-500 hover:scale-105"
+                     fill
+                     className="object-cover transform transition duration-500 hover:scale-105"
                    />
                  </div>
                </div>
                
                <div className="flex flex-col justify-center space-y-8">
+                  {/* OPTIMIZED: Phone Interface Image */}
                   <div className="relative h-[180px] md:h-[250px] w-full max-w-2xl mx-auto rounded-[2.5rem] border-[8px] border-gray-900 bg-gray-800 shadow-2xl overflow-hidden">
-                    <img 
+                    <Image 
                       src="/images/Mukando1.png" 
                       alt="Mobile App Interface" 
-                      className="w-full h-full object-cover"
+                      fill
+                      className="object-cover"
                     />
                   </div>
                </div>
