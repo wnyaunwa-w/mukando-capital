@@ -1,0 +1,91 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 210 17% 98%;
+    --foreground: 240 10% 4%;
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 4%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 4%;
+    --primary: 123 47% 34%;
+    --primary-foreground: 0 0% 100%;
+    --primary-light: 123 47% 95%;
+    --secondary: 123 34% 64%;
+    --secondary-foreground: 123 47% 14%;
+    --muted: 210 17% 95%;
+    --muted-foreground: 240 4% 46%;
+    --accent: 210 17% 93%;
+    --accent-foreground: 240 6% 10%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 210 17% 90%;
+    --input: 210 17% 90%;
+    --ring: 123 47% 34%;
+    --radius: 0.5rem;
+    --chart-1: 122 41% 39%;
+    --chart-2: 197 71% 73%;
+    --chart-3: 122 30% 60%;
+    --chart-4: 197 50% 60%;
+    --chart-5: 122 20% 40%;
+    --sidebar-background: 0 0% 97%;
+    --sidebar-foreground: 0 0% 10%;
+    --sidebar-primary: 123 47% 34%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 0 0% 90%;
+    --sidebar-accent-foreground: 0 0% 10%;
+    --sidebar-border: 0 0% 85%;
+    --sidebar-ring: 197 71% 73%;
+  }
+
+  .dark {
+    --background: 240 6% 10%;
+    --foreground: 0 0% 98%;
+    --card: 240 6% 12%;
+    --card-foreground: 0 0% 98%;
+    --popover: 240 6% 12%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 123 47% 34%;
+    --primary-foreground: 0 0% 100%;
+    --primary-light: 123 47% 10%;
+    --secondary: 123 34% 64%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 240 4% 16%;
+    --muted-foreground: 240 4% 64%;
+    --accent: 240 4% 16%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 4% 20%;
+    --input: 240 4% 22%;
+    --ring: 123 47% 34%;
+    --chart-1: 122 41% 39%;
+    --chart-2: 197 71% 73%;
+    --chart-3: 122 30% 60%;
+    --chart-4: 197 50% 60%;
+    --chart-5: 122 20% 40%;
+    --sidebar-background: 0 0% 8%;
+    --sidebar-foreground: 0 0% 98%;
+    --sidebar-primary: 123 47% 34%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 0 0% 14%;
+    --sidebar-accent-foreground: 0 0% 98%;
+    --sidebar-border: 0 0% 20%;
+    --sidebar-ring: 197 71% 73%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+.MuiCircularProgress-root {
+  color: #D32F2F; /* Change this to your desired color */
+}
