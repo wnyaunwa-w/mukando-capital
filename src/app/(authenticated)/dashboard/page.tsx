@@ -54,6 +54,7 @@ export default function DashboardPage() {
 
   // Stats State
   const [totalSavings, setTotalSavings] = useState(0);
+  const [nextPayoutDate, setNextPayoutDate] = useState<string>("--/--");
 
   useEffect(() => {
     async function fetchGroups() {
@@ -68,6 +69,8 @@ export default function DashboardPage() {
 
           const membershipSnapshot = await getDocs(myMembershipsQuery);
           
+          let myUpcomingPayouts: string[] = [];
+
           const groupPromises = membershipSnapshot.docs.map(async (memberDoc) => {
              const groupRef = memberDoc.ref.parent.parent; 
              if (groupRef) {
@@ -75,6 +78,16 @@ export default function DashboardPage() {
                  if (groupSnap.exists()) {
                      const gData = groupSnap.data();
                      const mData = memberDoc.data();
+
+                     // --- LOGIC: Collect Payout Dates ---
+                     if (gData.payoutSchedule && Array.isArray(gData.payoutSchedule)) {
+                        const mySlots = gData.payoutSchedule.filter((slot: any) => 
+                            slot.userId === user.uid && 
+                            slot.status === 'pending'
+                        );
+                        // Add found dates to our list
+                        mySlots.forEach((slot: any) => myUpcomingPayouts.push(slot.payoutDate));
+                     }
 
                      if (gData.status !== 'suspended' && gData.status !== 'archived') {
                          return {
@@ -98,9 +111,27 @@ export default function DashboardPage() {
           
           setGroups(validGroups);
 
-          // Calculate Total Savings across ALL groups
+          // Calculate Total Savings
           const total = validGroups.reduce((sum, g) => sum + (g.myContribution || 0), 0);
           setTotalSavings(total);
+
+          // Calculate Next Payout Date (Earliest one)
+          if (myUpcomingPayouts.length > 0) {
+              // Sort dates ascending (Oldest to Newest)
+              myUpcomingPayouts.sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+              
+              // Take the first one and format it nicely
+              const dateObj = new Date(myUpcomingPayouts[0]);
+              // Format as DD/MM/YYYY
+              const formatted = dateObj.toLocaleDateString('en-GB', { 
+                  day: '2-digit', 
+                  month: '2-digit', 
+                  year: 'numeric' 
+              });
+              setNextPayoutDate(formatted);
+          } else {
+              setNextPayoutDate("No upcoming");
+          }
 
       } catch (error) {
           console.error("Error loading dashboard:", error);
@@ -131,7 +162,7 @@ export default function DashboardPage() {
            <p className="text-slate-500 mt-1">Here is your financial overview.</p>
         </div>
         
-        {/* Buttons with DISTINCT colors */}
+        {/* Buttons */}
         <div className="flex gap-3 w-full md:w-auto">
             <Link href="/join-group">
                 <Button className="bg-[#576066] hover:bg-[#464e54] gap-2 text-white w-full md:w-auto shadow-md">
@@ -146,9 +177,9 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* 2. STATS OVERVIEW CARDS (Now with Background Colors) */}
+      {/* 2. STATS OVERVIEW CARDS */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* Total Savings - EMERALD TINT */}
+        {/* Total Savings */}
         <div className="bg-emerald-50 p-6 rounded-2xl shadow-sm border border-emerald-100">
           <div className="flex justify-between items-start mb-4">
             <div className="p-2 bg-white rounded-lg shadow-sm">
@@ -159,7 +190,7 @@ export default function DashboardPage() {
           <h3 className="text-3xl font-bold text-emerald-900 mt-1">{formatCurrency(totalSavings)}</h3>
         </div>
 
-        {/* Active Groups - BLUE TINT */}
+        {/* Active Groups */}
         <div className="bg-blue-50 p-6 rounded-2xl shadow-sm border border-blue-100">
           <div className="flex justify-between items-start mb-4">
             <div className="p-2 bg-white rounded-lg shadow-sm">
@@ -170,15 +201,15 @@ export default function DashboardPage() {
           <h3 className="text-3xl font-bold text-blue-900 mt-1">{groups.length}</h3>
         </div>
 
-        {/* Next Payout - PURPLE TINT */}
+        {/* Next Payout - DYNAMICALLY UPDATED */}
         <div className="bg-purple-50 p-6 rounded-2xl shadow-sm border border-purple-100">
           <div className="flex justify-between items-start mb-4">
             <div className="p-2 bg-white rounded-lg shadow-sm">
               <Calendar className="w-6 h-6 text-purple-700" />
             </div>
           </div>
-          <p className="text-sm text-purple-800 font-medium">Next Payout</p>
-          <h3 className="text-3xl font-bold text-purple-900 mt-1">--/--</h3>
+          <p className="text-sm text-purple-800 font-medium">Your Next Payout</p>
+          <h3 className="text-3xl font-bold text-purple-900 mt-1">{nextPayoutDate}</h3>
         </div>
       </div>
 
@@ -189,7 +220,7 @@ export default function DashboardPage() {
         </h2>
         
         {groups.length === 0 ? (
-            // EMPTY STATE / EDUCATIONAL
+            // EMPTY STATE
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div className="md:col-span-2 bg-white p-8 rounded-xl border border-dashed border-slate-300 text-center flex flex-col items-center justify-center">
                     <div className="bg-slate-50 w-16 h-16 rounded-full flex items-center justify-center mb-4">
@@ -214,7 +245,7 @@ export default function DashboardPage() {
                 </div>
             </div>
         ) : (
-            // LIST OF GROUPS (Your Original Card Design)
+            // LIST OF GROUPS
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {groups.map((group, index) => {
                     const colorClass = CARD_COLORS[index % CARD_COLORS.length];
