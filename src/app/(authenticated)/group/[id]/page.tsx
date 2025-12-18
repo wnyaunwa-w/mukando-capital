@@ -8,7 +8,7 @@ import { useAuth } from "@/components/auth-provider";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2, Copy, Share2, AlertTriangle, Lock, ArrowLeft } from "lucide-react"; 
+import { Loader2, Copy, Share2, Lock, ArrowLeft, MessageCircle } from "lucide-react"; 
 import { formatCurrency } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { getFirebaseApp } from "@/lib/firebase/client";
@@ -32,7 +32,9 @@ interface ExtendedMember extends Member {
 
 function GroupContent() {
   const params = useParams();
-  const id = typeof params.id === 'string' ? params.id : ''; 
+  const id = typeof params.groupId === 'string' ? params.groupId : (typeof params.id === 'string' ? params.id : ''); 
+  // ^^^ ROBUST ID CHECK: Handles both [groupId] and [id] folder naming
+  
   const router = useRouter();
   const { user } = useAuth();
   const { toast } = useToast();
@@ -49,11 +51,13 @@ function GroupContent() {
     if (!id || !user) return;
     const db = getFirestore(getFirebaseApp());
     
+    // 1. Listen to Group Data
     const unsubGroup = onSnapshot(doc(db, "groups", id), async (docSnap) => {
       if (docSnap.exists()) {
         const gData = { id: docSnap.id, ...docSnap.data() } as Group;
         setGroup(gData);
 
+        // Calculate Next Payout Person
         const schedule = (gData as any).payoutSchedule || [];
         const today = new Date().toISOString().split('T')[0];
         const nextPerson = schedule
@@ -78,10 +82,12 @@ function GroupContent() {
       }
     });
 
+    // 2. Listen to Member Data
     const unsubMember = onSnapshot(doc(db, "groups", id, "members", user.uid), (docSnap) => {
       if (docSnap.exists()) setCurrentMember({ userId: docSnap.id, ...docSnap.data() } as ExtendedMember);
     });
 
+    // 3. Listen to Global Settings
     const unsubSettings = onSnapshot(doc(db, "settings", "global"), (docSnap) => {
         if (docSnap.exists() && docSnap.data().platformFeeCents) setPlatformFee(docSnap.data().platformFeeCents);
     });
@@ -108,29 +114,72 @@ function GroupContent() {
   const isLocked = subState.status === 'inactive' || subState.status === 'expired';
   const isAdmin = currentMember?.role === 'admin';
 
+  // --- WHATSAPP SHARE FUNCTION ---
   const shareToWhatsApp = () => {
     if (!group) return;
-    const text = `Join my group "${group.name}" on Mukando! Use invite code: ${group.id.substring(0,6).toUpperCase()}`;
+    const inviteCode = group.id.substring(0,6).toUpperCase();
+    const text = `Join my savings circle "${group.name}" on Mukando Capital!\n\nUse Invite Code: *${inviteCode}*\n\nOr click here to join: https://www.mukandocapital.com/join-group`;
     const url = `https://wa.me/?text=${encodeURIComponent(text)}`;
     window.open(url, '_blank');
   };
+
   const copyCode = () => {
-    if (group?.id) { navigator.clipboard.writeText(group.id); toast({ title: "Copied!", description: "Group code copied." }); }
+    if (group?.id) { 
+        navigator.clipboard.writeText(group.id.substring(0,6).toUpperCase()); 
+        toast({ title: "Copied!", description: "Invite code copied to clipboard." }); 
+    }
   }
 
-  if (!group) return <div className="p-10 flex justify-center"><Loader2 className="animate-spin" /></div>;
+  if (!group) return <div className="p-10 flex justify-center"><Loader2 className="animate-spin text-[#2C514C]" /></div>;
 
   return (
     <div className="w-full space-y-6 pb-20 font-sans text-slate-800">
       
-      {/* HEADER */}
+      {/* HEADER AREA */}
       <div className="flex flex-col gap-4 w-full">
-        <Button variant="ghost" className="w-fit pl-0 text-slate-500 hover:bg-transparent hover:text-slate-900" onClick={() => router.push("/dashboard")}>
-             <ArrowLeft className="mr-2 h-4 w-4" /> Back to Dashboard
-        </Button>
-        <div className="w-full break-words">
-            <h1 className="text-3xl md:text-4xl font-bold text-green-800 leading-tight">{group.name}</h1>
-            <p className="text-gray-500 mt-1 text-sm md:text-base">{group.description}</p>
+        
+        {/* Top Row: Back Button & Desktop Invite Button */}
+        <div className="flex justify-between items-center">
+            <Button variant="ghost" className="pl-0 text-slate-500 hover:bg-transparent hover:text-slate-900" onClick={() => router.push("/dashboard")}>
+                <ArrowLeft className="mr-2 h-4 w-4" /> Back to Dashboard
+            </Button>
+            
+            {/* DESKTOP INVITE BUTTON */}
+            <Button 
+                onClick={shareToWhatsApp}
+                className="hidden md:flex bg-[#25D366] hover:bg-[#128C7E] text-white gap-2 font-semibold shadow-sm"
+            >
+                <MessageCircle className="w-4 h-4" /> Invite via WhatsApp
+            </Button>
+        </div>
+
+        {/* Title & Mobile Actions Row */}
+        <div className="w-full break-words flex flex-col md:flex-row justify-between items-start gap-4">
+            <div className="flex-1">
+                <h1 className="text-3xl md:text-4xl font-bold text-[#122932] leading-tight">{group.name}</h1>
+                <p className="text-gray-500 mt-1 text-sm md:text-base">{group.description}</p>
+                
+                {/* Invite Code Badge */}
+                <div className="flex items-center gap-3 mt-3">
+                    <div className="flex items-center gap-2 bg-slate-100 border border-slate-200 px-3 py-1 rounded-md">
+                        <span className="text-xs font-bold text-slate-500 uppercase">Code:</span>
+                        <span className="font-mono font-bold text-[#2C514C] tracking-wider text-sm">
+                            {group.id.substring(0,6).toUpperCase()}
+                        </span>
+                    </div>
+                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-slate-400 hover:text-[#2C514C]" onClick={copyCode}>
+                        <Copy className="h-4 w-4" />
+                    </Button>
+                </div>
+            </div>
+
+            {/* MOBILE INVITE BUTTON (Full Width) */}
+            <Button 
+                onClick={shareToWhatsApp}
+                className="md:hidden w-full bg-[#25D366] hover:bg-[#128C7E] text-white gap-2 font-bold h-12 shadow-sm"
+            >
+                <MessageCircle className="w-5 h-5" /> Invite Members to Join
+            </Button>
         </div>
       </div>
 
@@ -154,8 +203,8 @@ function GroupContent() {
                   const displayProfile = nextPayoutProfile || { photoURL: nextPerson.photoURL, displayName: nextPerson.displayName };
                   return (
                     <div className="flex items-center gap-3">
-                      <div className="h-10 w-10 flex-shrink-0 rounded-full bg-white/10 flex items-center justify-center font-bold text-white border border-white/20">
-                          {displayProfile.photoURL ? <img src={displayProfile.photoURL} className="h-full w-full rounded-full object-cover"/> : (displayProfile.displayName?.charAt(0) || "?")}
+                      <div className="h-10 w-10 flex-shrink-0 rounded-full bg-white/10 flex items-center justify-center font-bold text-white border border-white/20 overflow-hidden">
+                          {displayProfile.photoURL ? <img src={displayProfile.photoURL} className="h-full w-full object-cover"/> : (displayProfile.displayName?.charAt(0) || "?")}
                       </div>
                       <div className="min-w-0 flex-1">
                           <div className="font-bold truncate text-white text-lg">{displayProfile.displayName}</div>
@@ -170,33 +219,42 @@ function GroupContent() {
         </Card>
       </div>
 
-      {/* ACTIONS */}
+      {/* ACTION BUTTONS */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Button className="bg-[#3f7f4e] hover:bg-[#2f6f3e] text-white h-12 w-full" onClick={() => setIsClaimOpen(true)} disabled={isLocked}>Claim Manual Payment</Button>
-        <Button className="bg-[#3f7f4e] hover:bg-[#2f6f3e] text-white h-12 w-full" onClick={() => setIsPayFeeOpen(true)}>Pay Fee</Button>
+        <Button 
+            className="bg-[#2C514C] hover:bg-[#1b3330] text-white h-12 w-full font-bold shadow-sm" 
+            onClick={() => setIsClaimOpen(true)} 
+            disabled={isLocked}
+        >
+            Claim Manual Payment
+        </Button>
+        <Button 
+            className="bg-[#576066] hover:bg-[#464e54] text-white h-12 w-full font-bold shadow-sm" 
+            onClick={() => setIsPayFeeOpen(true)}
+        >
+            Pay Fee
+        </Button>
       </div>
 
-      {/* TABS - The most critical part for responsiveness */}
+      {/* TABS & CONTENT */}
       {isLocked ? (
         <div className="text-center py-20 bg-slate-50 border-2 border-dashed rounded-xl"><Lock className="h-12 w-12 text-slate-300 mx-auto" /> Locked</div>
       ) : (
         <Tabs defaultValue="ledger" className="w-full mt-4">
             
-            {/* 1. SCROLLABLE TAB LIST */}
+            {/* SCROLLABLE TAB LIST */}
             <div className="w-full overflow-x-auto pb-2 scrollbar-hide">
                 <TabsList className="w-auto inline-flex justify-start h-auto p-0 bg-transparent space-x-6">
-                    <TabsTrigger value="ledger" className="border-b-2 border-transparent data-[state=active]:border-green-600 pb-2 bg-transparent whitespace-nowrap">Ledger</TabsTrigger>
-                    <TabsTrigger value="members" className="border-b-2 border-transparent data-[state=active]:border-green-600 pb-2 bg-transparent whitespace-nowrap">Members</TabsTrigger>
-                    {isAdmin && <TabsTrigger value="schedule" className="border-b-2 border-transparent data-[state=active]:border-green-600 pb-2 bg-transparent whitespace-nowrap">Schedule</TabsTrigger>}
-                    {isAdmin && <TabsTrigger value="admin" className="border-b-2 border-transparent data-[state=active]:border-green-600 pb-2 bg-transparent whitespace-nowrap">Admin Forms</TabsTrigger>}
+                    <TabsTrigger value="ledger" className="border-b-2 border-transparent data-[state=active]:border-[#2C514C] data-[state=active]:text-[#2C514C] pb-2 bg-transparent whitespace-nowrap font-medium text-slate-500">Ledger</TabsTrigger>
+                    <TabsTrigger value="members" className="border-b-2 border-transparent data-[state=active]:border-[#2C514C] data-[state=active]:text-[#2C514C] pb-2 bg-transparent whitespace-nowrap font-medium text-slate-500">Members</TabsTrigger>
+                    {isAdmin && <TabsTrigger value="schedule" className="border-b-2 border-transparent data-[state=active]:border-[#2C514C] data-[state=active]:text-[#2C514C] pb-2 bg-transparent whitespace-nowrap font-medium text-slate-500">Schedule</TabsTrigger>}
+                    {isAdmin && <TabsTrigger value="admin" className="border-b-2 border-transparent data-[state=active]:border-[#2C514C] data-[state=active]:text-[#2C514C] pb-2 bg-transparent whitespace-nowrap font-medium text-slate-500">Admin Forms</TabsTrigger>}
                 </TabsList>
             </div>
             
-            {/* 2. WRAPPED TAB CONTENT FOR TABLE SAFETY */}
-            {/* The 'overflow-x-auto' ensures tables scroll INSIDE the view, not pushing the view */}
-            
+            {/* TAB CONTENTS */}
             <TabsContent value="ledger" className="mt-4 w-full">
-                <div className="w-full overflow-x-auto border rounded-lg">
+                <div className="w-full overflow-x-auto border rounded-lg bg-white shadow-sm">
                     <div className="min-w-[600px] md:min-w-full"> 
                         <TransactionLedger groupId={group.id} />
                     </div>
@@ -204,14 +262,14 @@ function GroupContent() {
             </TabsContent>
 
             <TabsContent value="members" className="mt-4 w-full">
-                <div className="w-full overflow-x-auto">
+                <div className="w-full overflow-x-auto bg-white rounded-lg shadow-sm">
                     <MembersList groupId={group.id} />
                 </div>
             </TabsContent>
 
             {isAdmin && (
                 <TabsContent value="schedule" className="mt-4 w-full">
-                    <div className="w-full overflow-x-auto border rounded-lg">
+                    <div className="w-full overflow-x-auto border rounded-lg bg-white shadow-sm">
                         <div className="min-w-[600px] md:min-w-full">
                             <PayoutScheduleTab groupId={group.id} />
                         </div>
@@ -221,7 +279,7 @@ function GroupContent() {
 
             {isAdmin && (
                 <TabsContent value="admin" className="mt-4 w-full">
-                    <div className="w-full overflow-x-auto">
+                    <div className="w-full overflow-x-auto bg-white rounded-lg shadow-sm">
                         <AdminForms groupId={group.id} />
                     </div>
                 </TabsContent>
