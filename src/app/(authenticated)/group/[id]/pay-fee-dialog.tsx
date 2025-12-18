@@ -5,10 +5,18 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, CheckCircle2, MessageCircle } from "lucide-react"; // Added MessageCircle
+import { Loader2, CheckCircle2, MessageCircle } from "lucide-react"; 
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrency } from "@/lib/utils";
-import { getFirestore, collection, addDoc, serverTimestamp, doc, getDoc } from "firebase/firestore";
+import { 
+  getFirestore, 
+  collection, 
+  addDoc, 
+  serverTimestamp, 
+  doc, 
+  getDoc, 
+  updateDoc 
+} from "firebase/firestore";
 import { getFirebaseApp } from "@/lib/firebase/client";
 import { useAuth } from "@/components/auth-provider";
 import { logActivity } from "@/lib/services/audit-service";
@@ -25,12 +33,13 @@ export function PayFeeDialog({ isOpen, onOpenChange, groupId }: PayFeeDialogProp
   const [loading, setLoading] = useState(false);
   const [fetchingFee, setFetchingFee] = useState(true);
   const [refNumber, setRefNumber] = useState("");
-  const [isSuccess, setIsSuccess] = useState(false); // New State for Success View
+  const [isSuccess, setIsSuccess] = useState(false); 
   
   // Dynamic Fee State
   const [currentFeeCents, setCurrentFeeCents] = useState(100); 
 
-  const paymentInstructions = "Mukando Capital Innbucks: 077 123 4567 (Name: Admin)";
+  // --- ⚠️ UPDATE THIS WITH YOUR REAL ACCOUNT DETAILS ---
+  const paymentInstructions = "Innbucks: 077 123 4567 (Mukando Admin)";
 
   // 1. Fetch the real fee when dialog opens
   useEffect(() => {
@@ -64,7 +73,7 @@ export function PayFeeDialog({ isOpen, onOpenChange, groupId }: PayFeeDialogProp
     const db = getFirestore(getFirebaseApp());
 
     try {
-      // 1. Create the Fee Request
+      // 1. Create the Fee Request (For Admin Records)
       await addDoc(collection(db, "fee_requests"), {
         userId: user.uid,
         userDisplayName: user.displayName || "Member",
@@ -77,7 +86,15 @@ export function PayFeeDialog({ isOpen, onOpenChange, groupId }: PayFeeDialogProp
         type: "platform_fee"
       });
 
-      // 2. Log it
+      // 2. Update Member Status to "Pending" (So they see a different UI)
+      const memberRef = doc(db, "groups", groupId, "members", user.uid);
+      await updateDoc(memberRef, {
+        subscriptionStatus: "pending_approval",
+        lastPaymentRef: refNumber,
+        updatedAt: serverTimestamp()
+      });
+
+      // 3. Log it
       await logActivity({
         groupId: groupId,
         action: "FEE_PAID",
@@ -85,9 +102,9 @@ export function PayFeeDialog({ isOpen, onOpenChange, groupId }: PayFeeDialogProp
         performedBy: { uid: user.uid, displayName: user.displayName || "Member" }
       });
 
-      toast({ title: "Submitted", description: "Fee payment recorded." });
+      toast({ title: "Submitted", description: "Payment recorded. Waiting for approval." });
       
-      // 3. SWITCH TO SUCCESS VIEW
+      // 4. Switch to Success View
       setIsSuccess(true);
 
     } catch (error: any) {
@@ -99,7 +116,7 @@ export function PayFeeDialog({ isOpen, onOpenChange, groupId }: PayFeeDialogProp
   };
 
   const handleWhatsApp = () => {
-    const message = `Hi Admin, I have just paid the Platform Fee of ${formatCurrency(currentFeeCents)} (Ref: ${refNumber}). Please approve my access.`;
+    const message = `Hi Admin, I have just paid the Platform Fee of ${formatCurrency(currentFeeCents)} (Ref: ${refNumber}) for Group: ${groupId}. Please approve my access.`;
     const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
     window.open(whatsappUrl, '_blank');
     
@@ -115,7 +132,7 @@ export function PayFeeDialog({ isOpen, onOpenChange, groupId }: PayFeeDialogProp
         {!isSuccess && (
           <>
             <DialogHeader>
-              <DialogTitle>Pay Platform Subscription Fee</DialogTitle>
+              <DialogTitle className="text-[#122932]">Pay Platform Subscription Fee</DialogTitle>
               <DialogDescription>
                  To activate your membership, please pay the monthly fee.
               </DialogDescription>
@@ -127,7 +144,7 @@ export function PayFeeDialog({ isOpen, onOpenChange, groupId }: PayFeeDialogProp
                 {fetchingFee ? (
                     <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
                 ) : (
-                    <span className="text-xl font-bold text-green-700">{formatCurrency(currentFeeCents)}</span>
+                    <span className="text-xl font-bold text-[#2C514C]">{formatCurrency(currentFeeCents)}</span>
                 )}
               </div>
 
@@ -143,6 +160,7 @@ export function PayFeeDialog({ isOpen, onOpenChange, groupId }: PayFeeDialogProp
                   placeholder="e.g., INB987654321" 
                   value={refNumber}
                   onChange={(e) => setRefNumber(e.target.value)}
+                  className="tracking-widest"
                 />
               </div>
             </div>
@@ -152,7 +170,7 @@ export function PayFeeDialog({ isOpen, onOpenChange, groupId }: PayFeeDialogProp
               <Button 
                 onClick={handleSubmit} 
                 disabled={!refNumber || loading || fetchingFee}
-                className="bg-green-700 hover:bg-green-800"
+                className="bg-[#2C514C] hover:bg-[#25423e]"
               >
                 {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
                 Submit Payment
@@ -166,9 +184,9 @@ export function PayFeeDialog({ isOpen, onOpenChange, groupId }: PayFeeDialogProp
           <>
             <div className="py-6 flex flex-col items-center text-center space-y-4">
               <div className="h-16 w-16 bg-green-100 rounded-full flex items-center justify-center mb-2">
-                <CheckCircle2 className="h-10 w-10 text-green-600" />
+                <CheckCircle2 className="h-10 w-10 text-[#2C514C]" />
               </div>
-              <DialogTitle className="text-2xl text-green-700">Payment Submitted!</DialogTitle>
+              <DialogTitle className="text-2xl text-[#2C514C]">Payment Submitted!</DialogTitle>
               <p className="text-slate-500 max-w-xs">
                 Your request is pending. Notify the admin to speed up your approval.
               </p>
