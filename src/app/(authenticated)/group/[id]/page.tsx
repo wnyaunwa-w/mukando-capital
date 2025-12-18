@@ -33,7 +33,6 @@ interface ExtendedMember extends Member {
 function GroupContent() {
   const params = useParams();
   const id = typeof params.groupId === 'string' ? params.groupId : (typeof params.id === 'string' ? params.id : ''); 
-  // ^^^ ROBUST ID CHECK: Handles both [groupId] and [id] folder naming
   
   const router = useRouter();
   const { user } = useAuth();
@@ -144,12 +143,12 @@ function GroupContent() {
                 <ArrowLeft className="mr-2 h-4 w-4" /> Back to Dashboard
             </Button>
             
-            {/* DESKTOP INVITE BUTTON */}
+            {/* DESKTOP INVITE BUTTON - UPDATED TEXT */}
             <Button 
                 onClick={shareToWhatsApp}
                 className="hidden md:flex bg-[#25D366] hover:bg-[#128C7E] text-white gap-2 font-semibold shadow-sm"
             >
-                <MessageCircle className="w-4 h-4" /> Invite via WhatsApp
+                <MessageCircle className="w-4 h-4" /> Invite Members via WhatsApp
             </Button>
         </div>
 
@@ -173,12 +172,12 @@ function GroupContent() {
                 </div>
             </div>
 
-            {/* MOBILE INVITE BUTTON (Full Width) */}
+            {/* MOBILE INVITE BUTTON (Full Width) - UPDATED TEXT */}
             <Button 
                 onClick={shareToWhatsApp}
                 className="md:hidden w-full bg-[#25D366] hover:bg-[#128C7E] text-white gap-2 font-bold h-12 shadow-sm"
             >
-                <MessageCircle className="w-5 h-5" /> Invite Members to Join
+                <MessageCircle className="w-5 h-5" /> Invite Members via WhatsApp
             </Button>
         </div>
       </div>
