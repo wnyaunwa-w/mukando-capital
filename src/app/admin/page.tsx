@@ -178,13 +178,13 @@ export default function SuperAdminPage() {
       
       {/* HEADER & NAVIGATION */}
       <div className="flex flex-col gap-2">
-        {/* BACK BUTTON */}
+        {/* BACK BUTTON - Navigates to Main Dashboard */}
         <Button 
             variant="ghost" 
             className="w-fit pl-0 text-slate-500 hover:bg-transparent hover:text-slate-900 mb-2" 
             onClick={() => router.push("/dashboard")}
         >
-             <ArrowLeft className="mr-2 h-4 w-4" /> Back to Dashboard
+             <ArrowLeft className="mr-2 h-4 w-4" /> Back to Group Dashboard
         </Button>
 
         <h1 className="text-3xl font-bold text-[#122932] flex items-center gap-2">
