@@ -10,6 +10,10 @@ export const metadata: Metadata = {
   title: "Mukando Capital",
   description: "Modern rotating savings and credit association platform.",
   manifest: "/manifest.json",
+  icons: {
+    icon: "/icons/icon-192.png",
+    apple: "/icons/icon-192.png", // <--- CRUCIAL FOR iPHONE
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
