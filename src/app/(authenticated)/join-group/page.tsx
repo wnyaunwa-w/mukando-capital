@@ -65,7 +65,6 @@ export default function JoinGroupPage() {
       }, { merge: true });
 
       // 3. NEW: Increment the Group's member count
-      // This fixes the "1 Member" bug on the dashboard card
       await updateDoc(groupRef, {
         membersCount: increment(1)
       });
@@ -92,31 +91,46 @@ export default function JoinGroupPage() {
 
   return (
     <div className="max-w-md mx-auto py-10 px-4">
-      <Button variant="ghost" className="mb-4 pl-0 hover:bg-transparent hover:text-green-700" onClick={() => router.back()}>
+      <Button 
+        variant="ghost" 
+        className="mb-4 pl-0 hover:bg-transparent hover:text-[#576066] text-slate-500" 
+        onClick={() => router.back()}
+      >
         <ArrowLeft className="mr-2 h-4 w-4" /> Back
       </Button>
 
-      <Card>
+      {/* --- COLORED CARD (Blue Slate) --- */}
+      <Card className="bg-[#576066] border-none text-white shadow-xl">
         <CardHeader>
-          <CardTitle className="text-2xl">Join a Group</CardTitle>
-          <CardDescription>Enter the invite code shared with you to access the group.</CardDescription>
+          <CardTitle className="text-2xl font-bold">Join a Group</CardTitle>
+          <CardDescription className="text-slate-200">
+            Enter the invite code shared with you to access the group.
+          </CardDescription>
         </CardHeader>
         <form onSubmit={handleJoin}>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <label htmlFor="code" className="text-sm font-medium">Group Code / ID</label>
+              <label htmlFor="code" className="text-sm font-medium text-slate-100">
+                Group Code / ID
+              </label>
               <Input 
                 id="code"
                 placeholder="e.g. D54HSN" 
                 value={code} 
                 onChange={(e) => setCode(e.target.value)}
-                className="uppercase tracking-widest text-center text-lg h-12 font-bold"
+                // Keep input white for readability
+                className="bg-white text-slate-900 uppercase tracking-widest text-center text-lg h-12 font-bold border-white/20"
                 required
               />
             </div>
           </CardContent>
           <CardFooter>
-            <Button type="submit" className="w-full bg-green-700 hover:bg-green-800 h-12 text-lg" disabled={loading}>
+            {/* Button is now White with Blue text to pop against the background */}
+            <Button 
+              type="submit" 
+              className="w-full bg-white text-[#576066] hover:bg-slate-100 font-bold h-12 text-lg shadow-sm" 
+              disabled={loading}
+            >
               {loading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <CheckCircle2 className="mr-2 h-5 w-5" />}
               Join Group
             </Button>

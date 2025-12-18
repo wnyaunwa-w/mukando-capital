@@ -123,14 +123,21 @@ export default function CreateGroupPage() {
 
   return (
     <div className="max-w-2xl mx-auto py-10 px-4">
-      <Button variant="ghost" className="mb-4 pl-0 hover:bg-transparent hover:text-green-700" onClick={() => router.back()}>
+      <Button 
+        variant="ghost" 
+        className="mb-4 pl-0 hover:bg-transparent hover:text-[#2C514C] text-slate-500" 
+        onClick={() => router.back()}
+      >
         <ArrowLeft className="mr-2 h-4 w-4" /> Back to Dashboard
       </Button>
 
-      <Card>
+      {/* --- COLORED CARD (Mukando Green) --- */}
+      <Card className="bg-[#2C514C] border-none text-white shadow-xl">
         <CardHeader>
-          <CardTitle className="text-2xl">Create New Group</CardTitle>
-          <CardDescription>Start a new saving circle. You will be the Admin.</CardDescription>
+          <CardTitle className="text-2xl font-bold">Create New Group</CardTitle>
+          <CardDescription className="text-slate-200">
+            Start a new saving circle. You will be the Admin.
+          </CardDescription>
         </CardHeader>
         <form onSubmit={handleCreate}>
           <CardContent className="space-y-6">
@@ -138,59 +145,76 @@ export default function CreateGroupPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Auto-Generated ID Field */}
               <div className="space-y-2">
-                <Label htmlFor="id">Group ID (Invite Code)</Label>
+                <Label htmlFor="id" className="text-slate-100">Group ID (Invite Code)</Label>
                 <div className="flex gap-2">
                   <Input 
                     id="id" 
                     value={generatedId} 
                     readOnly
-                    className="bg-slate-50 font-mono text-center tracking-widest font-bold text-green-800"
+                    // White input, Green text for emphasis
+                    className="bg-white font-mono text-center tracking-widest font-bold text-[#2C514C] border-white/20"
                   />
-                  <Button type="button" variant="outline" size="icon" onClick={refreshCode} title="Generate new code">
-                    <RefreshCw className="h-4 w-4 text-slate-500" />
+                  {/* Refresh button styled for dark background */}
+                  <Button 
+                    type="button" 
+                    variant="outline" 
+                    size="icon" 
+                    onClick={refreshCode} 
+                    title="Generate new code"
+                    className="bg-white/10 border-white/20 text-white hover:bg-white/20 hover:text-white"
+                  >
+                    <RefreshCw className="h-4 w-4" />
                   </Button>
                 </div>
-                <p className="text-xs text-slate-500">This code is auto-generated for you.</p>
+                <p className="text-xs text-slate-300">This code is auto-generated for you.</p>
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="monthlyContribution">Monthly Amount ($)</Label>
+                <Label htmlFor="monthlyContribution" className="text-slate-100">Monthly Amount ($)</Label>
                 <Input 
                   id="monthlyContribution" 
                   type="number" 
                   placeholder="100" 
                   value={formData.monthlyContribution} 
                   onChange={handleChange}
+                  className="bg-white text-slate-900 border-white/20"
                   required
                 />
               </div>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="name">Group Name</Label>
+              <Label htmlFor="name" className="text-slate-100">Group Name</Label>
               <Input 
                 id="name" 
                 placeholder="e.g. Johnson Family Savings" 
                 value={formData.name} 
                 onChange={handleChange}
+                className="bg-white text-slate-900 border-white/20"
                 required
               />
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="description">Description (Optional)</Label>
+              <Label htmlFor="description" className="text-slate-100">Description (Optional)</Label>
               <Textarea 
                 id="description" 
                 placeholder="What is this group for?" 
                 value={formData.description} 
                 onChange={handleChange}
+                className="bg-white text-slate-900 border-white/20"
                 rows={3}
               />
             </div>
 
           </CardContent>
-          <CardFooter className="bg-slate-50 p-6 border-t">
-            <Button type="submit" className="w-full bg-green-700 hover:bg-green-800 h-12 text-lg" disabled={loading}>
+          <CardFooter className="p-6 border-t border-white/10">
+            {/* White Button with Green Text */}
+            <Button 
+              type="submit" 
+              className="w-full bg-white text-[#2C514C] hover:bg-slate-100 font-bold h-12 text-lg shadow-sm" 
+              disabled={loading}
+            >
               {loading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Plus className="mr-2 h-5 w-5" />}
               Create Group
             </Button>
