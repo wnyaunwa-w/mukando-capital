@@ -18,8 +18,20 @@ import {
   Plus, 
   Minus,
   Banknote,
-  ArrowLeft
+  ArrowLeft,
+  Download,
+  Trash2,
+  Ban,
+  CheckCircle,
+  MoreHorizontal
 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrency } from "@/lib/utils";
 import { 
@@ -30,12 +42,14 @@ import {
   doc, 
   updateDoc, 
   setDoc,
+  deleteDoc,
   orderBy,
   getDoc,
   serverTimestamp
 } from "firebase/firestore";
 import { getFirebaseApp } from "@/lib/firebase/client";
 
+// --- TYPES ---
 interface FeeRequest {
   id: string;
   userId: string;
@@ -47,10 +61,32 @@ interface FeeRequest {
   createdAt: any;
 }
 
+interface AdminGroup {
+  id: string;
+  name: string;
+  membersCount: number;
+  currentBalanceCents: number;
+  status: string; // 'active', 'suspended', 'archived'
+}
+
+interface AdminUser {
+  uid: string;
+  displayName: string;
+  email: string;
+  role?: string;
+  status?: string; // 'active', 'banned'
+  joinedAt?: any;
+}
+
 export default function SuperAdminPage() {
   const router = useRouter();
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
+  
+  // Data State
+  const [feeRequests, setFeeRequests] = useState<FeeRequest[]>([]);
+  const [groupsList, setGroupsList] = useState<AdminGroup[]>([]);
+  const [usersList, setUsersList] = useState<AdminUser[]>([]);
   
   // Stats
   const [stats, setStats] = useState({
@@ -60,27 +96,51 @@ export default function SuperAdminPage() {
     totalEarningsCents: 0,
   });
 
-  // Fee Management
-  const [feeRequests, setFeeRequests] = useState<FeeRequest[]>([]);
-  
   // Settings
   const [platformFeeCents, setPlatformFeeCents] = useState(100);
   const [savingFee, setSavingFee] = useState(false);
 
   const db = getFirestore(getFirebaseApp());
 
-  // 1. Fetch Dashboard Data
+  // --- 1. FETCH ALL DATA ---
   useEffect(() => {
     const fetchData = async () => {
       try {
-        // A. Stats: Groups & Volume
+        // A. FETCH GROUPS
         const groupsSnap = await getDocs(collection(db, "groups"));
+        const groupsData: AdminGroup[] = [];
         let volume = 0;
+        
         groupsSnap.forEach(doc => {
-            volume += (doc.data().currentBalanceCents || 0);
+            const d = doc.data();
+            volume += (d.currentBalanceCents || 0);
+            groupsData.push({ 
+                id: doc.id, 
+                name: d.name || "Unnamed Group",
+                membersCount: d.membersCount || 0,
+                currentBalanceCents: d.currentBalanceCents || 0,
+                status: d.status || 'active'
+            });
         });
+        setGroupsList(groupsData);
 
-        // C. Fetch Fee Requests (Pending & History)
+        // B. FETCH USERS
+        const usersSnap = await getDocs(collection(db, "users"));
+        const usersData: AdminUser[] = [];
+        usersSnap.forEach(doc => {
+            const d = doc.data();
+            usersData.push({
+                uid: doc.id,
+                displayName: d.displayName || "Unknown",
+                email: d.email || "No Email",
+                role: d.role || "member",
+                status: d.status || "active",
+                joinedAt: d.createdAt
+            });
+        });
+        setUsersList(usersData);
+
+        // C. FETCH FEE REQUESTS
         const qFees = query(collection(db, "fee_requests"), orderBy("createdAt", "desc"));
         const feesSnap = await getDocs(qFees);
         
@@ -91,15 +151,14 @@ export default function SuperAdminPage() {
         feesSnap.forEach(doc => {
             const data = doc.data();
             requests.push({ id: doc.id, ...data } as FeeRequest);
-            
-            // Calculate Earnings from Approved Requests
             if (data.status === 'approved') {
                 earnings += (data.amountCents || 0);
                 approvedCount++;
             }
         });
-
         setFeeRequests(requests);
+
+        // D. SET STATS
         setStats({
             totalGroups: groupsSnap.size,
             totalVolumeCents: volume,
@@ -107,7 +166,7 @@ export default function SuperAdminPage() {
             totalEarningsCents: earnings 
         });
 
-        // D. Fetch Settings
+        // E. FETCH SETTINGS
         const settingsSnap = await getDoc(doc(db, "settings", "global"));
         if (settingsSnap.exists()) {
             setPlatformFeeCents(settingsSnap.data().platformFeeCents || 100);
@@ -115,6 +174,7 @@ export default function SuperAdminPage() {
 
       } catch (error) {
         console.error("Admin Load Error:", error);
+        toast({ variant: "destructive", title: "Error", description: "Failed to load admin data." });
       } finally {
         setLoading(false);
       }
@@ -123,44 +183,89 @@ export default function SuperAdminPage() {
     fetchData();
   }, []);
 
-  // 2. Actions
+  // --- ACTIONS: FEES ---
   const handleFeeAction = async (request: FeeRequest, action: 'approved' | 'rejected') => {
     try {
-        // Update Request Doc
         await updateDoc(doc(db, "fee_requests", request.id), { status: action });
-
-        // Update User Status in Group
         if (action === 'approved') {
             const memberRef = doc(db, "groups", request.groupId, "members", request.userId);
             await updateDoc(memberRef, {
                 subscriptionStatus: 'active',
-                subscriptionEndsAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // +30 Days
+                subscriptionEndsAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
                 updatedAt: serverTimestamp()
             });
-            
-            // Update Local Stats dynamically
             setStats(prev => ({
                 ...prev, 
                 activeSubs: prev.activeSubs + 1,
                 totalEarningsCents: prev.totalEarningsCents + request.amountCents
             }));
         }
-
-        // Remove from local list or update status
         setFeeRequests(prev => prev.map(r => r.id === request.id ? { ...r, status: action } : r));
-        toast({ title: `Request ${action}`, description: "User access updated." });
-
+        toast({ title: "Success", description: `Request ${action}` });
     } catch (error) {
-        toast({ variant: "destructive", title: "Error", description: "Failed to update status." });
+        toast({ variant: "destructive", title: "Error", description: "Action failed." });
     }
   };
 
+  // --- ACTIONS: GROUPS ---
+  const toggleGroupStatus = async (group: AdminGroup) => {
+      const newStatus = group.status === 'suspended' ? 'active' : 'suspended';
+      try {
+          await updateDoc(doc(db, "groups", group.id), { status: newStatus });
+          setGroupsList(prev => prev.map(g => g.id === group.id ? { ...g, status: newStatus } : g));
+          toast({ title: "Updated", description: `Group is now ${newStatus}` });
+      } catch (e) { toast({ variant: "destructive", title: "Error", description: "Could not update group." }); }
+  };
+
+  const deleteGroup = async (groupId: string) => {
+      if(!confirm("Are you sure? This deletes the group permanently.")) return;
+      try {
+          await deleteDoc(doc(db, "groups", groupId));
+          setGroupsList(prev => prev.filter(g => g.id !== groupId));
+          setStats(prev => ({ ...prev, totalGroups: prev.totalGroups - 1 }));
+          toast({ title: "Deleted", description: "Group removed." });
+      } catch (e) { toast({ variant: "destructive", title: "Error", description: "Delete failed." }); }
+  };
+
+  // --- ACTIONS: USERS ---
+  const toggleUserStatus = async (user: AdminUser) => {
+      const newStatus = user.status === 'banned' ? 'active' : 'banned';
+      try {
+          await updateDoc(doc(db, "users", user.uid), { status: newStatus });
+          setUsersList(prev => prev.map(u => u.uid === user.uid ? { ...u, status: newStatus } : u));
+          toast({ title: "Updated", description: `User is now ${newStatus}` });
+      } catch (e) { toast({ variant: "destructive", title: "Error", description: "Could not update user." }); }
+  };
+
+  const deleteUser = async (uid: string) => {
+      if(!confirm("Are you sure? This deletes the user permanently.")) return;
+      try {
+          await deleteDoc(doc(db, "users", uid));
+          setUsersList(prev => prev.filter(u => u.uid !== uid));
+          toast({ title: "Deleted", description: "User removed." });
+      } catch (e) { toast({ variant: "destructive", title: "Error", description: "Delete failed." }); }
+  };
+
+  const downloadUserCSV = () => {
+      const headers = ["User ID,Name,Email,Role,Status\n"];
+      const rows = usersList.map(u => 
+          `${u.uid},"${u.displayName}","${u.email}",${u.role || 'member'},${u.status || 'active'}`
+      );
+      const csvContent = "data:text/csv;charset=utf-8," + headers + rows.join("\n");
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement("a");
+      link.setAttribute("href", encodedUri);
+      link.setAttribute("download", "mukando_users_export.csv");
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+  };
+
+  // --- ACTIONS: SETTINGS ---
   const savePlatformFee = async () => {
     setSavingFee(true);
     try {
-        await setDoc(doc(db, "settings", "global"), { 
-            platformFeeCents 
-        }, { merge: true });
+        await setDoc(doc(db, "settings", "global"), { platformFeeCents }, { merge: true });
         toast({ title: "Saved", description: "Global platform fee updated." });
     } catch (e) {
         toast({ variant: "destructive", title: "Error", description: "Could not save settings." });
@@ -178,7 +283,6 @@ export default function SuperAdminPage() {
       
       {/* HEADER & NAVIGATION */}
       <div className="flex flex-col gap-2">
-        {/* BACK BUTTON - Navigates to Main Dashboard */}
         <Button 
             variant="ghost" 
             className="w-fit pl-0 text-slate-500 hover:bg-transparent hover:text-slate-900 mb-2" 
@@ -196,29 +300,20 @@ export default function SuperAdminPage() {
       {/* STATS ROW */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
         
-        {/* 1. Total Groups */}
         <Card className="bg-[#122932] text-white border-none shadow-md">
             <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-medium text-slate-300">Total Groups</CardTitle>
                 <div className="text-3xl font-bold">{stats.totalGroups}</div>
             </CardHeader>
-            <CardContent>
-                <div className="text-xs text-slate-400">Active communities</div>
-            </CardContent>
         </Card>
 
-        {/* 2. Total Volume */}
         <Card className="bg-[#2f6f3e] text-white border-none shadow-md">
             <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-medium text-slate-200">Total Volume Held</CardTitle>
                 <div className="text-3xl font-bold">{formatCurrency(stats.totalVolumeCents)}</div>
             </CardHeader>
-            <CardContent>
-                <div className="text-xs text-slate-300">$ Across all wallets</div>
-            </CardContent>
         </Card>
 
-        {/* 3. Total Earnings */}
         <Card className="bg-amber-600 text-white border-none shadow-md">
             <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-medium text-amber-100 flex items-center gap-2">
@@ -226,23 +321,15 @@ export default function SuperAdminPage() {
                 </CardTitle>
                 <div className="text-3xl font-bold">{formatCurrency(stats.totalEarningsCents)}</div>
             </CardHeader>
-            <CardContent>
-                <div className="text-xs text-amber-100">Platform revenue collected</div>
-            </CardContent>
         </Card>
 
-        {/* 4. Active Subs */}
         <Card className="bg-[#576066] text-white border-none shadow-md">
             <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-medium text-slate-300">Active Subs</CardTitle>
                 <div className="text-3xl font-bold">{stats.activeSubs}</div>
             </CardHeader>
-            <CardContent>
-                <div className="text-xs text-slate-400">Paying members</div>
-            </CardContent>
         </Card>
 
-        {/* 5. Fee Control */}
         <Card className="bg-[#0f172a] text-white border-none shadow-md">
             <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-medium text-slate-400">Subscription Fee</CardTitle>
@@ -262,10 +349,9 @@ export default function SuperAdminPage() {
                 </Button>
             </CardContent>
         </Card>
-
       </div>
 
-      {/* TABS AREA */}
+      {/* MAIN TABS */}
       <Tabs defaultValue="fees" className="w-full">
         <TabsList className="bg-white border mb-4">
             <TabsTrigger value="fees" className="data-[state=active]:bg-red-50 data-[state=active]:text-red-700">
@@ -276,6 +362,7 @@ export default function SuperAdminPage() {
             <TabsTrigger value="users">User Directory</TabsTrigger>
         </TabsList>
 
+        {/* 1. FEE REQUESTS TAB */}
         <TabsContent value="fees" className="space-y-4">
             <Card>
                 <CardHeader>
@@ -324,16 +411,119 @@ export default function SuperAdminPage() {
             </Card>
         </TabsContent>
 
+        {/* 2. GROUP MANAGEMENT TAB */}
         <TabsContent value="groups">
-            <div className="p-8 text-center text-slate-500 bg-white border rounded-lg border-dashed">
-                Group management features coming soon.
-            </div>
+            <Card>
+                <CardHeader>
+                    <CardTitle>All Groups</CardTitle>
+                    <CardDescription>Manage all savings circles on the platform.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                    <div className="border rounded-lg overflow-hidden">
+                        <table className="w-full text-sm text-left">
+                            <thead className="bg-slate-100 text-slate-700 font-medium">
+                                <tr>
+                                    <th className="p-4">Group Name</th>
+                                    <th className="p-4">Members</th>
+                                    <th className="p-4">Balance</th>
+                                    <th className="p-4">Status</th>
+                                    <th className="p-4 text-right">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                                {groupsList.map(g => (
+                                    <tr key={g.id} className="hover:bg-slate-50">
+                                        <td className="p-4 font-medium">{g.name}</td>
+                                        <td className="p-4">{g.membersCount}</td>
+                                        <td className="p-4">{formatCurrency(g.currentBalanceCents)}</td>
+                                        <td className="p-4">
+                                            <Badge variant={g.status === 'suspended' ? 'destructive' : 'outline'} className={g.status === 'active' ? "bg-green-50 text-green-700 border-green-200" : ""}>
+                                                {g.status || 'Active'}
+                                            </Badge>
+                                        </td>
+                                        <td className="p-4 text-right">
+                                            <DropdownMenu>
+                                                <DropdownMenuTrigger asChild>
+                                                    <Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button>
+                                                </DropdownMenuTrigger>
+                                                <DropdownMenuContent align="end">
+                                                    <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                                                    <DropdownMenuItem onClick={() => toggleGroupStatus(g)}>
+                                                        {g.status === 'suspended' ? <span className="flex items-center text-green-600"><CheckCircle className="mr-2 h-4 w-4"/> Activate</span> : <span className="flex items-center text-amber-600"><Ban className="mr-2 h-4 w-4"/> Suspend</span>}
+                                                    </DropdownMenuItem>
+                                                    <DropdownMenuItem onClick={() => deleteGroup(g.id)} className="text-red-600">
+                                                        <Trash2 className="mr-2 h-4 w-4" /> Delete Group
+                                                    </DropdownMenuItem>
+                                                </DropdownMenuContent>
+                                            </DropdownMenu>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </CardContent>
+            </Card>
         </TabsContent>
 
+        {/* 3. USER DIRECTORY TAB */}
         <TabsContent value="users">
-             <div className="p-8 text-center text-slate-500 bg-white border rounded-lg border-dashed">
-                User directory coming soon.
-            </div>
+             <Card>
+                <CardHeader className="flex flex-row items-center justify-between">
+                    <div>
+                        <CardTitle>User Directory</CardTitle>
+                        <CardDescription>View and manage all registered users.</CardDescription>
+                    </div>
+                    <Button variant="outline" onClick={downloadUserCSV} className="gap-2">
+                        <Download className="h-4 w-4" /> Export CSV
+                    </Button>
+                </CardHeader>
+                <CardContent>
+                    <div className="border rounded-lg overflow-hidden">
+                        <table className="w-full text-sm text-left">
+                            <thead className="bg-slate-100 text-slate-700 font-medium">
+                                <tr>
+                                    <th className="p-4">Name</th>
+                                    <th className="p-4">Email</th>
+                                    <th className="p-4">Role</th>
+                                    <th className="p-4">Status</th>
+                                    <th className="p-4 text-right">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                                {usersList.map(u => (
+                                    <tr key={u.uid} className="hover:bg-slate-50">
+                                        <td className="p-4 font-medium">{u.displayName}</td>
+                                        <td className="p-4 text-slate-500">{u.email}</td>
+                                        <td className="p-4 capitalize">{u.role || 'Member'}</td>
+                                        <td className="p-4">
+                                            <Badge variant={u.status === 'banned' ? 'destructive' : 'outline'}>
+                                                {u.status || 'active'}
+                                            </Badge>
+                                        </td>
+                                        <td className="p-4 text-right">
+                                            <DropdownMenu>
+                                                <DropdownMenuTrigger asChild>
+                                                    <Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button>
+                                                </DropdownMenuTrigger>
+                                                <DropdownMenuContent align="end">
+                                                    <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                                                    <DropdownMenuItem onClick={() => toggleUserStatus(u)}>
+                                                        {u.status === 'banned' ? <span className="flex items-center text-green-600"><CheckCircle className="mr-2 h-4 w-4"/> Unban</span> : <span className="flex items-center text-amber-600"><Ban className="mr-2 h-4 w-4"/> Ban User</span>}
+                                                    </DropdownMenuItem>
+                                                    <DropdownMenuItem onClick={() => deleteUser(u.uid)} className="text-red-600">
+                                                        <Trash2 className="mr-2 h-4 w-4" /> Delete User
+                                                    </DropdownMenuItem>
+                                                </DropdownMenuContent>
+                                            </DropdownMenu>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </CardContent>
+            </Card>
         </TabsContent>
       </Tabs>
     </div>
