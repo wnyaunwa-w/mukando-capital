@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { 
   Card, 
   CardContent, 
@@ -11,18 +12,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Input } from "@/components/ui/input";
 import { 
-  Users, 
-  Wallet, 
-  CheckCircle2, 
-  XCircle, 
-  Loader2, 
   ShieldAlert, 
-  Save, 
+  Loader2, 
   Plus, 
   Minus,
-  Banknote
+  Banknote,
+  ArrowLeft
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrency } from "@/lib/utils";
@@ -30,13 +26,11 @@ import {
   getFirestore, 
   collection, 
   query, 
-  where, 
   getDocs, 
   doc, 
   updateDoc, 
   setDoc,
   orderBy,
-  onSnapshot,
   getDoc,
   serverTimestamp
 } from "firebase/firestore";
@@ -54,6 +48,7 @@ interface FeeRequest {
 }
 
 export default function SuperAdminPage() {
+  const router = useRouter();
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
   
@@ -62,7 +57,7 @@ export default function SuperAdminPage() {
     totalGroups: 0,
     totalVolumeCents: 0,
     activeSubs: 0,
-    totalEarningsCents: 0, // <--- NEW STAT
+    totalEarningsCents: 0,
   });
 
   // Fee Management
@@ -85,11 +80,6 @@ export default function SuperAdminPage() {
             volume += (doc.data().currentBalanceCents || 0);
         });
 
-        // B. Stats: Active Subscribers (Users with active status)
-        const usersSnap = await getDocs(collection(db, "users")); 
-        // Note: For a real app, you might query specific sub-collections, 
-        // but let's assume we can count based on Fee Requests for now or distinct users.
-        
         // C. Fetch Fee Requests (Pending & History)
         const qFees = query(collection(db, "fee_requests"), orderBy("createdAt", "desc"));
         const feesSnap = await getDocs(qFees);
@@ -113,8 +103,8 @@ export default function SuperAdminPage() {
         setStats({
             totalGroups: groupsSnap.size,
             totalVolumeCents: volume,
-            activeSubs: approvedCount, // Approx proxy for active subs based on payments
-            totalEarningsCents: earnings // <--- SET EARNINGS
+            activeSubs: approvedCount, 
+            totalEarningsCents: earnings 
         });
 
         // D. Fetch Settings
@@ -179,22 +169,31 @@ export default function SuperAdminPage() {
     }
   };
 
-  if (loading) return <div className="p-10 flex justify-center"><Loader2 className="animate-spin" /></div>;
+  if (loading) return <div className="p-10 flex justify-center"><Loader2 className="animate-spin text-[#2C514C]" /></div>;
 
   const pendingRequests = feeRequests.filter(r => r.status === 'pending');
 
   return (
     <div className="space-y-8 pb-10">
       
-      {/* HEADER */}
-      <div>
+      {/* HEADER & NAVIGATION */}
+      <div className="flex flex-col gap-2">
+        {/* BACK BUTTON */}
+        <Button 
+            variant="ghost" 
+            className="w-fit pl-0 text-slate-500 hover:bg-transparent hover:text-slate-900 mb-2" 
+            onClick={() => router.push("/dashboard")}
+        >
+             <ArrowLeft className="mr-2 h-4 w-4" /> Back to Dashboard
+        </Button>
+
         <h1 className="text-3xl font-bold text-[#122932] flex items-center gap-2">
             <ShieldAlert className="h-8 w-8 text-red-700" /> Super Admin
         </h1>
         <p className="text-slate-500 mt-1">Platform overview and revenue management.</p>
       </div>
 
-      {/* STATS ROW - Now with 5 Columns */}
+      {/* STATS ROW */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
         
         {/* 1. Total Groups */}
@@ -219,7 +218,7 @@ export default function SuperAdminPage() {
             </CardContent>
         </Card>
 
-        {/* 3. NEW: Total Earnings */}
+        {/* 3. Total Earnings */}
         <Card className="bg-amber-600 text-white border-none shadow-md">
             <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-medium text-amber-100 flex items-center gap-2">
