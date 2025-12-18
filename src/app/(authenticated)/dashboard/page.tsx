@@ -6,7 +6,6 @@ import { useAuth } from "@/components/auth-provider";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { 
-  PlusCircle, 
   Loader2, 
   ArrowRight, 
   Users, 
@@ -132,53 +131,54 @@ export default function DashboardPage() {
            <p className="text-slate-500 mt-1">Here is your financial overview.</p>
         </div>
         
+        {/* Buttons with DISTINCT colors */}
         <div className="flex gap-3 w-full md:w-auto">
             <Link href="/join-group">
-                <Button variant="outline" className="gap-2 w-full md:w-auto">
-                    <Search className="w-4 h-4" /> Join
+                <Button className="bg-[#576066] hover:bg-[#464e54] gap-2 text-white w-full md:w-auto shadow-md">
+                    <Search className="w-4 h-4" /> Join Group
                 </Button>
             </Link>
             <Link href="/create-group">
-                <Button className="bg-[#122932] hover:bg-[#1b3b48] gap-2 text-white w-full md:w-auto">
-                    <Plus className="w-4 h-4" /> New Mukando
+                <Button className="bg-[#2C514C] hover:bg-[#25423e] gap-2 text-white w-full md:w-auto shadow-md">
+                    <Plus className="w-4 h-4" /> Create Group
                 </Button>
             </Link>
         </div>
       </div>
 
-      {/* 2. STATS OVERVIEW CARDS */}
+      {/* 2. STATS OVERVIEW CARDS (Now with Background Colors) */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* Total Savings */}
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+        {/* Total Savings - EMERALD TINT */}
+        <div className="bg-emerald-50 p-6 rounded-2xl shadow-sm border border-emerald-100">
           <div className="flex justify-between items-start mb-4">
-            <div className="p-2 bg-green-100 rounded-lg">
-              <Wallet className="w-6 h-6 text-green-700" />
+            <div className="p-2 bg-white rounded-lg shadow-sm">
+              <Wallet className="w-6 h-6 text-emerald-700" />
             </div>
           </div>
-          <p className="text-sm text-slate-500 font-medium">Total Savings</p>
-          <h3 className="text-3xl font-bold text-slate-900 mt-1">{formatCurrency(totalSavings)}</h3>
+          <p className="text-sm text-emerald-800 font-medium">Total Savings</p>
+          <h3 className="text-3xl font-bold text-emerald-900 mt-1">{formatCurrency(totalSavings)}</h3>
         </div>
 
-        {/* Active Groups */}
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+        {/* Active Groups - BLUE TINT */}
+        <div className="bg-blue-50 p-6 rounded-2xl shadow-sm border border-blue-100">
           <div className="flex justify-between items-start mb-4">
-            <div className="p-2 bg-blue-100 rounded-lg">
+            <div className="p-2 bg-white rounded-lg shadow-sm">
               <Users className="w-6 h-6 text-blue-700" />
             </div>
           </div>
-          <p className="text-sm text-slate-500 font-medium">Active Groups</p>
-          <h3 className="text-3xl font-bold text-slate-900 mt-1">{groups.length}</h3>
+          <p className="text-sm text-blue-800 font-medium">Active Groups</p>
+          <h3 className="text-3xl font-bold text-blue-900 mt-1">{groups.length}</h3>
         </div>
 
-        {/* Next Payout (Placeholder) */}
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+        {/* Next Payout - PURPLE TINT */}
+        <div className="bg-purple-50 p-6 rounded-2xl shadow-sm border border-purple-100">
           <div className="flex justify-between items-start mb-4">
-            <div className="p-2 bg-purple-100 rounded-lg">
+            <div className="p-2 bg-white rounded-lg shadow-sm">
               <Calendar className="w-6 h-6 text-purple-700" />
             </div>
           </div>
-          <p className="text-sm text-slate-500 font-medium">Next Payout</p>
-          <h3 className="text-3xl font-bold text-slate-900 mt-1">--/--</h3>
+          <p className="text-sm text-purple-800 font-medium">Next Payout</p>
+          <h3 className="text-3xl font-bold text-purple-900 mt-1">--/--</h3>
         </div>
       </div>
 
