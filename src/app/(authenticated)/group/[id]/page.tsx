@@ -8,7 +8,7 @@ import { useAuth } from "@/components/auth-provider";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2, Copy, Share2, Lock, ArrowLeft, MessageCircle } from "lucide-react"; 
+import { Loader2, Copy, Lock, ArrowLeft, MessageCircle } from "lucide-react"; 
 import { formatCurrency } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { getFirebaseApp } from "@/lib/firebase/client";
@@ -143,7 +143,6 @@ function GroupContent() {
                 <ArrowLeft className="mr-2 h-4 w-4" /> Back to Dashboard
             </Button>
             
-            {/* DESKTOP INVITE BUTTON - UPDATED TEXT */}
             <Button 
                 onClick={shareToWhatsApp}
                 className="hidden md:flex bg-[#25D366] hover:bg-[#128C7E] text-white gap-2 font-semibold shadow-sm"
@@ -172,7 +171,7 @@ function GroupContent() {
                 </div>
             </div>
 
-            {/* MOBILE INVITE BUTTON (Full Width) - UPDATED TEXT */}
+            {/* MOBILE INVITE BUTTON (Full Width) */}
             <Button 
                 onClick={shareToWhatsApp}
                 className="md:hidden w-full bg-[#25D366] hover:bg-[#128C7E] text-white gap-2 font-bold h-12 shadow-sm"
@@ -231,13 +230,27 @@ function GroupContent() {
             className="bg-[#576066] hover:bg-[#464e54] text-white h-12 w-full font-bold shadow-sm" 
             onClick={() => setIsPayFeeOpen(true)}
         >
-            Pay Fee
+            Pay Platform Fee ({formatCurrency(platformFee)})
         </Button>
       </div>
 
-      {/* TABS & CONTENT */}
+      {/* TABS & CONTENT - LOCKED STATE HANDLING */}
       {isLocked ? (
-        <div className="text-center py-20 bg-slate-50 border-2 border-dashed rounded-xl"><Lock className="h-12 w-12 text-slate-300 mx-auto" /> Locked</div>
+        <div className="text-center py-20 bg-slate-50 border-2 border-dashed rounded-xl flex flex-col items-center justify-center gap-3">
+            <div className="bg-slate-100 p-4 rounded-full">
+                <Lock className="h-12 w-12 text-slate-400" />
+            </div>
+            <h3 className="text-lg font-bold text-slate-900">Access Restricted</h3>
+            <p className="text-slate-500 max-w-sm mx-auto">
+                Activate your group privileges by paying Platform Fee.
+            </p>
+            <Button 
+                onClick={() => setIsPayFeeOpen(true)}
+                className="mt-2 bg-[#2C514C] hover:bg-[#25423e] text-white"
+            >
+                Pay Now ({formatCurrency(platformFee)})
+            </Button>
+        </div>
       ) : (
         <Tabs defaultValue="ledger" className="w-full mt-4">
             
