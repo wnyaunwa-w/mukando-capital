@@ -23,7 +23,8 @@ import {
   Trash2,
   Ban,
   CheckCircle,
-  MoreHorizontal
+  MoreHorizontal,
+  Phone
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -73,6 +74,7 @@ interface AdminUser {
   uid: string;
   displayName: string;
   email: string;
+  phoneNumber?: string; 
   role?: string;
   status?: string; // 'active', 'banned'
   joinedAt?: any;
@@ -129,10 +131,18 @@ export default function SuperAdminPage() {
         const usersData: AdminUser[] = [];
         usersSnap.forEach(doc => {
             const d = doc.data();
+            
+            // LOGIC: Fallback name if missing
+            let safeName = d.displayName;
+            if (!safeName && d.firstName && d.lastName) safeName = `${d.firstName} ${d.lastName}`;
+            if (!safeName && d.email) safeName = d.email.split('@')[0]; // Use email prefix (e.g. "simbadez")
+            if (!safeName) safeName = "Unnamed User";
+
             usersData.push({
                 uid: doc.id,
-                displayName: d.displayName || "Unknown",
+                displayName: safeName,
                 email: d.email || "No Email",
+                phoneNumber: d.phoneNumber || "N/A", // Added Phone
                 role: d.role || "member",
                 status: d.status || "active",
                 joinedAt: d.createdAt
@@ -247,9 +257,9 @@ export default function SuperAdminPage() {
   };
 
   const downloadUserCSV = () => {
-      const headers = ["User ID,Name,Email,Role,Status\n"];
+      const headers = ["User ID,Name,Email,Phone,Role,Status\n"];
       const rows = usersList.map(u => 
-          `${u.uid},"${u.displayName}","${u.email}",${u.role || 'member'},${u.status || 'active'}`
+          `${u.uid},"${u.displayName}","${u.email}","${u.phoneNumber || ''}",${u.role || 'member'},${u.status || 'active'}`
       );
       const csvContent = "data:text/csv;charset=utf-8," + headers + rows.join("\n");
       const encodedUri = encodeURI(csvContent);
@@ -485,6 +495,7 @@ export default function SuperAdminPage() {
                                 <tr>
                                     <th className="p-4">Name</th>
                                     <th className="p-4">Email</th>
+                                    <th className="p-4">Phone</th> {/* New Column */}
                                     <th className="p-4">Role</th>
                                     <th className="p-4">Status</th>
                                     <th className="p-4 text-right">Actions</th>
@@ -495,6 +506,7 @@ export default function SuperAdminPage() {
                                     <tr key={u.uid} className="hover:bg-slate-50">
                                         <td className="p-4 font-medium">{u.displayName}</td>
                                         <td className="p-4 text-slate-500">{u.email}</td>
+                                        <td className="p-4 text-slate-500">{u.phoneNumber || 'N/A'}</td> {/* New Data */}
                                         <td className="p-4 capitalize">{u.role || 'Member'}</td>
                                         <td className="p-4">
                                             <Badge variant={u.status === 'banned' ? 'destructive' : 'outline'}>
