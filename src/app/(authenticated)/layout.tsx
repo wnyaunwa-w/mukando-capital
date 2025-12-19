@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
@@ -13,7 +13,8 @@ import {
   X, 
   PlusCircle, 
   ShieldAlert,
-  UserCircle
+  UserCircle,
+  Loader2
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getAuth, signOut as firebaseSignOut } from "firebase/auth";
@@ -24,13 +25,37 @@ export default function AuthenticatedLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { user } = useAuth(); 
+  const { user, loading } = useAuth(); // <--- Ensure your useAuth returns 'loading'
   const router = useRouter();
   const pathname = usePathname();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
+  // --- 1. THE BOUNCER (REDIRECT LOGIC) ---
+  useEffect(() => {
+    // If we are done loading, and there is NO user...
+    if (!loading && !user) {
+        router.push("/"); // ... Go to Login Page
+    }
+  }, [user, loading, router]);
+
+  // --- 2. LOADING SCREEN ---
+  // While Firebase is checking credentials, show a spinner so it doesn't look like it hung.
+  if (loading) {
+    return (
+      <div className="h-screen w-full flex flex-col items-center justify-center bg-[#122932]">
+        <div className="animate-spin text-white mb-4">
+            <Loader2 className="h-10 w-10" />
+        </div>
+        <p className="text-white text-sm animate-pulse">Securely connecting...</p>
+      </div>
+    );
+  }
+
+  // If not loading and no user, return null (the useEffect above will redirect)
+  if (!user) return null;
+
   // --- SECURITY CHECK ---
-  const isSuperAdmin = user?.email === "wnyaunwa@gmail.com";
+  const isSuperAdmin = user?.email === "wnyaunwa@gmail.com"; // Update with your actual admin email if different
 
   const navItems = [
     { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
@@ -52,7 +77,7 @@ export default function AuthenticatedLayout({
   return (
     <div className="min-h-screen bg-slate-50 flex font-sans overflow-x-hidden"> 
       
-      {/* 2. DESKTOP SIDEBAR */}
+      {/* DESKTOP SIDEBAR */}
       <aside className="hidden md:flex w-64 flex-col fixed inset-y-0 z-50 bg-[#122932] text-white shadow-xl transition-all">
         <div className="h-16 flex items-center px-6 border-b border-white/10">
            <span className="font-bold text-xl tracking-tight text-white">Mukando Capital</span>
@@ -117,7 +142,7 @@ export default function AuthenticatedLayout({
         </div>
       </aside>
 
-      {/* 3. MOBILE HEADER */}
+      {/* MOBILE HEADER */}
       <div className="md:hidden fixed top-0 left-0 right-0 h-16 bg-[#122932] z-50 flex items-center justify-between px-4 shadow-md">
          <div className="flex items-center">
             <span className="font-bold text-white text-lg">Mukando Capital</span>
@@ -164,7 +189,7 @@ export default function AuthenticatedLayout({
         </div>
       )}
 
-      {/* 4. MAIN CONTENT AREA */}
+      {/* MAIN CONTENT AREA */}
       <main className={cn(
         "flex-1 transition-all duration-300 min-h-screen",
         "md:pl-64", 

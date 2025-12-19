@@ -1,4 +1,3 @@
-
 'use client';
 
 import {
@@ -19,7 +18,6 @@ import {
 } from 'firebase/firestore';
 import { getFirebaseApp } from '@/lib/firebase/client';
 import type { User as UserProfile } from '@/lib/types';
-import { Loader2 } from 'lucide-react';
 
 interface AuthContextType {
   user: User | null;
@@ -89,7 +87,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             const unsubscribeProfile = onSnapshot(userDocRef, (docSnap) => {
               if (docSnap.exists()) {
                 setUser(firebaseUser);
-                setProfile({ id: docSnap.id, ...docSnap.data() } as UserProfile);
+                // --- FIX APPLIED HERE ---
+                setProfile({ 
+                    uid: docSnap.id, // Changed 'id' to 'uid'
+                    ...docSnap.data() 
+                } as unknown as UserProfile); // Added 'as unknown' to force type
               } else {
                 // This case should theoretically not happen due to checkAndCreateUserDocument, but is a good safeguard.
                 setUser(null);
