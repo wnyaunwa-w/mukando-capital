@@ -1,5 +1,8 @@
 'use client';
 
+// FORCE REBUILD: Restoring the correct Blue Landing Page layout
+// This comment ensures Vercel sees a file change and triggers a new deployment.
+
 import Image from "next/image";
 import React from 'react';
 import Link from 'next/link';
