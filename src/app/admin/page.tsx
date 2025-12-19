@@ -67,7 +67,7 @@ interface AdminGroup {
   name: string;
   membersCount: number;
   currentBalanceCents: number;
-  status: string; // 'active', 'suspended', 'archived'
+  status: string;
 }
 
 interface AdminUser {
@@ -76,7 +76,7 @@ interface AdminUser {
   email: string;
   phoneNumber?: string; 
   role?: string;
-  status?: string; // 'active', 'banned'
+  status?: string;
   joinedAt?: any;
 }
 
@@ -135,14 +135,14 @@ export default function SuperAdminPage() {
             // LOGIC: Fallback name if missing
             let safeName = d.displayName;
             if (!safeName && d.firstName && d.lastName) safeName = `${d.firstName} ${d.lastName}`;
-            if (!safeName && d.email) safeName = d.email.split('@')[0]; // Use email prefix (e.g. "simbadez")
+            if (!safeName && d.email) safeName = d.email.split('@')[0];
             if (!safeName) safeName = "Unnamed User";
 
             usersData.push({
                 uid: doc.id,
                 displayName: safeName,
                 email: d.email || "No Email",
-                phoneNumber: d.phoneNumber || "N/A", // Added Phone
+                phoneNumber: d.phoneNumber || "N/A", 
                 role: d.role || "member",
                 status: d.status || "active",
                 joinedAt: d.createdAt
@@ -193,7 +193,7 @@ export default function SuperAdminPage() {
     fetchData();
   }, []);
 
-  // --- ACTIONS: FEES ---
+  // --- ACTIONS ---
   const handleFeeAction = async (request: FeeRequest, action: 'approved' | 'rejected') => {
     try {
         await updateDoc(doc(db, "fee_requests", request.id), { status: action });
@@ -217,7 +217,6 @@ export default function SuperAdminPage() {
     }
   };
 
-  // --- ACTIONS: GROUPS ---
   const toggleGroupStatus = async (group: AdminGroup) => {
       const newStatus = group.status === 'suspended' ? 'active' : 'suspended';
       try {
@@ -237,7 +236,6 @@ export default function SuperAdminPage() {
       } catch (e) { toast({ variant: "destructive", title: "Error", description: "Delete failed." }); }
   };
 
-  // --- ACTIONS: USERS ---
   const toggleUserStatus = async (user: AdminUser) => {
       const newStatus = user.status === 'banned' ? 'active' : 'banned';
       try {
@@ -271,7 +269,6 @@ export default function SuperAdminPage() {
       document.body.removeChild(link);
   };
 
-  // --- ACTIONS: SETTINGS ---
   const savePlatformFee = async () => {
     setSavingFee(true);
     try {
@@ -289,7 +286,7 @@ export default function SuperAdminPage() {
   const pendingRequests = feeRequests.filter(r => r.status === 'pending');
 
   return (
-    <div className="space-y-8 pb-10">
+    <div className="space-y-6 pb-20 px-1 md:px-0">
       
       {/* HEADER & NAVIGATION */}
       <div className="flex flex-col gap-2">
@@ -298,60 +295,60 @@ export default function SuperAdminPage() {
             className="w-fit pl-0 text-slate-500 hover:bg-transparent hover:text-slate-900 mb-2" 
             onClick={() => router.push("/dashboard")}
         >
-             <ArrowLeft className="mr-2 h-4 w-4" /> Back to Group Dashboard
+             <ArrowLeft className="mr-2 h-4 w-4" /> Back to Dashboard
         </Button>
 
-        <h1 className="text-3xl font-bold text-[#122932] flex items-center gap-2">
-            <ShieldAlert className="h-8 w-8 text-red-700" /> Super Admin
+        <h1 className="text-2xl md:text-3xl font-bold text-[#122932] flex items-center gap-2">
+            <ShieldAlert className="h-6 w-6 md:h-8 md:w-8 text-red-700" /> Super Admin
         </h1>
-        <p className="text-slate-500 mt-1">Platform overview and revenue management.</p>
+        <p className="text-sm md:text-base text-slate-500">Platform overview and revenue management.</p>
       </div>
 
-      {/* STATS ROW */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+      {/* STATS ROW - Responsive Grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
         
         <Card className="bg-[#122932] text-white border-none shadow-md">
-            <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-slate-300">Total Groups</CardTitle>
-                <div className="text-3xl font-bold">{stats.totalGroups}</div>
+            <CardHeader className="pb-2 pt-4 px-4">
+                <CardTitle className="text-xs font-medium text-slate-300 uppercase tracking-wider">Total Groups</CardTitle>
+                <div className="text-2xl font-bold">{stats.totalGroups}</div>
             </CardHeader>
         </Card>
 
         <Card className="bg-[#2f6f3e] text-white border-none shadow-md">
-            <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-slate-200">Total Volume Held</CardTitle>
-                <div className="text-3xl font-bold">{formatCurrency(stats.totalVolumeCents)}</div>
+            <CardHeader className="pb-2 pt-4 px-4">
+                <CardTitle className="text-xs font-medium text-slate-200 uppercase tracking-wider">Volume Held</CardTitle>
+                <div className="text-2xl font-bold">{formatCurrency(stats.totalVolumeCents)}</div>
             </CardHeader>
         </Card>
 
         <Card className="bg-amber-600 text-white border-none shadow-md">
-            <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-amber-100 flex items-center gap-2">
-                    <Banknote className="w-4 h-4" /> Total Earnings
+            <CardHeader className="pb-2 pt-4 px-4">
+                <CardTitle className="text-xs font-medium text-amber-100 uppercase tracking-wider flex items-center gap-2">
+                    <Banknote className="w-3 h-3" /> Earnings
                 </CardTitle>
-                <div className="text-3xl font-bold">{formatCurrency(stats.totalEarningsCents)}</div>
+                <div className="text-2xl font-bold">{formatCurrency(stats.totalEarningsCents)}</div>
             </CardHeader>
         </Card>
 
         <Card className="bg-[#576066] text-white border-none shadow-md">
-            <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-slate-300">Active Subs</CardTitle>
-                <div className="text-3xl font-bold">{stats.activeSubs}</div>
+            <CardHeader className="pb-2 pt-4 px-4">
+                <CardTitle className="text-xs font-medium text-slate-300 uppercase tracking-wider">Active Subs</CardTitle>
+                <div className="text-2xl font-bold">{stats.activeSubs}</div>
             </CardHeader>
         </Card>
 
-        <Card className="bg-[#0f172a] text-white border-none shadow-md">
-            <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-slate-400">Subscription Fee</CardTitle>
-                <div className="text-3xl font-bold text-white flex items-center">
-                    {formatCurrency(platformFeeCents)}<span className="text-sm text-slate-500 font-normal ml-1">/mo</span>
+        <Card className="bg-[#0f172a] text-white border-none shadow-md sm:col-span-2 xl:col-span-1">
+            <CardHeader className="pb-1 pt-4 px-4">
+                <CardTitle className="text-xs font-medium text-slate-400 uppercase tracking-wider">Sub Fee</CardTitle>
+                <div className="text-2xl font-bold text-white flex items-center">
+                    {formatCurrency(platformFeeCents)}<span className="text-xs text-slate-500 font-normal ml-1">/mo</span>
                 </div>
             </CardHeader>
-            <CardContent className="flex items-center gap-2">
-                <Button variant="outline" size="icon" className="h-6 w-6 bg-transparent border-slate-600 hover:bg-slate-800" onClick={() => setPlatformFeeCents(c => Math.max(0, c - 50))}>
+            <CardContent className="px-4 pb-4 pt-1 flex items-center gap-2">
+                <Button variant="outline" size="icon" className="h-7 w-7 bg-transparent border-slate-600 hover:bg-slate-800" onClick={() => setPlatformFeeCents(c => Math.max(0, c - 50))}>
                     <Minus className="h-3 w-3 text-white" />
                 </Button>
-                <Button variant="outline" size="icon" className="h-6 w-6 bg-transparent border-slate-600 hover:bg-slate-800" onClick={() => setPlatformFeeCents(c => c + 50)}>
+                <Button variant="outline" size="icon" className="h-7 w-7 bg-transparent border-slate-600 hover:bg-slate-800" onClick={() => setPlatformFeeCents(c => c + 50)}>
                     <Plus className="h-3 w-3 text-white" />
                 </Button>
                 <Button size="sm" className="h-7 ml-auto bg-[#2C514C] hover:bg-[#1f3a36]" onClick={savePlatformFee} disabled={savingFee}>
@@ -363,52 +360,57 @@ export default function SuperAdminPage() {
 
       {/* MAIN TABS */}
       <Tabs defaultValue="fees" className="w-full">
-        <TabsList className="bg-white border mb-4">
-            <TabsTrigger value="fees" className="data-[state=active]:bg-red-50 data-[state=active]:text-red-700">
-                Fee Requests 
-                {pendingRequests.length > 0 && <Badge className="ml-2 bg-red-600 hover:bg-red-700">{pendingRequests.length}</Badge>}
-            </TabsTrigger>
-            <TabsTrigger value="groups">Group Management</TabsTrigger>
-            <TabsTrigger value="users">User Directory</TabsTrigger>
-        </TabsList>
+        {/* Scrollable Tabs List for Mobile */}
+        <div className="overflow-x-auto pb-2 -mx-1 px-1">
+            <TabsList className="bg-white border w-full justify-start md:justify-center min-w-[350px]">
+                <TabsTrigger value="fees" className="data-[state=active]:bg-red-50 data-[state=active]:text-red-700">
+                    Fees
+                    {pendingRequests.length > 0 && <Badge className="ml-2 bg-red-600 hover:bg-red-700 h-5 px-1.5">{pendingRequests.length}</Badge>}
+                </TabsTrigger>
+                <TabsTrigger value="groups">Groups</TabsTrigger>
+                <TabsTrigger value="users">Users</TabsTrigger>
+            </TabsList>
+        </div>
 
         {/* 1. FEE REQUESTS TAB */}
         <TabsContent value="fees" className="space-y-4">
             <Card>
-                <CardHeader>
-                    <CardTitle>Pending Fee Approvals</CardTitle>
-                    <CardDescription>Verify Innbucks references and approve access.</CardDescription>
+                <CardHeader className="px-4 py-4">
+                    <CardTitle className="text-lg">Pending Approvals</CardTitle>
+                    <CardDescription>Verify Innbucks references.</CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-4">
+                <CardContent className="space-y-3 px-4 pb-4">
                     {pendingRequests.length === 0 ? (
-                        <div className="text-center py-10 text-slate-500">No pending requests.</div>
+                        <div className="text-center py-8 text-slate-500 text-sm">No pending requests.</div>
                     ) : (
                         pendingRequests.map((req) => (
-                            <div key={req.id} className="flex flex-col md:flex-row justify-between items-start md:items-center p-4 border rounded-lg bg-slate-50 gap-4">
-                                <div>
-                                    <div className="font-bold text-[#122932] flex items-center gap-2">
+                            <div key={req.id} className="flex flex-col sm:flex-row justify-between items-start sm:items-center p-3 border rounded-lg bg-slate-50 gap-3">
+                                <div className="w-full sm:w-auto">
+                                    <div className="font-bold text-[#122932] flex items-center justify-between sm:justify-start gap-2 text-sm">
                                         {req.userDisplayName}
-                                        <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+                                        <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200 whitespace-nowrap">
                                             {formatCurrency(req.amountCents)}
                                         </Badge>
                                     </div>
-                                    <div className="text-sm text-slate-600 mt-1">
-                                        <span className="font-semibold text-slate-900">Ref: {req.refNumber}</span>
+                                    <div className="text-sm text-slate-600 mt-1 bg-white p-1 rounded border inline-block w-full sm:w-auto text-center sm:text-left">
+                                        Ref: <span className="font-mono font-semibold text-slate-900 select-all">{req.refNumber}</span>
                                     </div>
                                     <div className="text-xs text-slate-400 mt-1">
-                                        {new Date(req.createdAt?.seconds * 1000).toLocaleString()} | Group ID: {req.groupId}
+                                        {new Date(req.createdAt?.seconds * 1000).toLocaleDateString()}
                                     </div>
                                 </div>
-                                <div className="flex gap-2 w-full md:w-auto">
+                                <div className="grid grid-cols-2 gap-2 w-full sm:w-auto">
                                     <Button 
                                         variant="ghost" 
-                                        className="text-red-600 hover:text-red-700 hover:bg-red-50 w-full md:w-auto"
+                                        size="sm"
+                                        className="text-red-600 hover:text-red-700 hover:bg-red-50 border border-red-100"
                                         onClick={() => handleFeeAction(req, 'rejected')}
                                     >
                                         Reject
                                     </Button>
                                     <Button 
-                                        className="bg-green-700 hover:bg-green-800 text-white w-full md:w-auto"
+                                        size="sm"
+                                        className="bg-green-700 hover:bg-green-800 text-white"
                                         onClick={() => handleFeeAction(req, 'approved')}
                                     >
                                         Approve
@@ -424,45 +426,43 @@ export default function SuperAdminPage() {
         {/* 2. GROUP MANAGEMENT TAB */}
         <TabsContent value="groups">
             <Card>
-                <CardHeader>
-                    <CardTitle>All Groups</CardTitle>
-                    <CardDescription>Manage all savings circles on the platform.</CardDescription>
+                <CardHeader className="px-4 py-4">
+                    <CardTitle className="text-lg">All Groups</CardTitle>
                 </CardHeader>
-                <CardContent>
-                    <div className="border rounded-lg overflow-hidden">
-                        <table className="w-full text-sm text-left">
-                            <thead className="bg-slate-100 text-slate-700 font-medium">
+                <CardContent className="p-0">
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-sm text-left whitespace-nowrap">
+                            <thead className="bg-slate-100 text-slate-700 font-medium border-b">
                                 <tr>
-                                    <th className="p-4">Group Name</th>
-                                    <th className="p-4">Members</th>
-                                    <th className="p-4">Balance</th>
-                                    <th className="p-4">Status</th>
-                                    <th className="p-4 text-right">Actions</th>
+                                    <th className="p-3 pl-4">Name</th>
+                                    <th className="p-3">Members</th>
+                                    <th className="p-3">Balance</th>
+                                    <th className="p-3">Status</th>
+                                    <th className="p-3 pr-4 text-right">Action</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
                                 {groupsList.map(g => (
                                     <tr key={g.id} className="hover:bg-slate-50">
-                                        <td className="p-4 font-medium">{g.name}</td>
-                                        <td className="p-4">{g.membersCount}</td>
-                                        <td className="p-4">{formatCurrency(g.currentBalanceCents)}</td>
-                                        <td className="p-4">
+                                        <td className="p-3 pl-4 font-medium max-w-[150px] truncate">{g.name}</td>
+                                        <td className="p-3">{g.membersCount}</td>
+                                        <td className="p-3">{formatCurrency(g.currentBalanceCents)}</td>
+                                        <td className="p-3">
                                             <Badge variant={g.status === 'suspended' ? 'destructive' : 'outline'} className={g.status === 'active' ? "bg-green-50 text-green-700 border-green-200" : ""}>
                                                 {g.status || 'Active'}
                                             </Badge>
                                         </td>
-                                        <td className="p-4 text-right">
+                                        <td className="p-3 pr-4 text-right">
                                             <DropdownMenu>
                                                 <DropdownMenuTrigger asChild>
-                                                    <Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button>
+                                                    <Button variant="ghost" size="icon" className="h-8 w-8"><MoreHorizontal className="h-4 w-4" /></Button>
                                                 </DropdownMenuTrigger>
                                                 <DropdownMenuContent align="end">
-                                                    <DropdownMenuLabel>Actions</DropdownMenuLabel>
                                                     <DropdownMenuItem onClick={() => toggleGroupStatus(g)}>
                                                         {g.status === 'suspended' ? <span className="flex items-center text-green-600"><CheckCircle className="mr-2 h-4 w-4"/> Activate</span> : <span className="flex items-center text-amber-600"><Ban className="mr-2 h-4 w-4"/> Suspend</span>}
                                                     </DropdownMenuItem>
                                                     <DropdownMenuItem onClick={() => deleteGroup(g.id)} className="text-red-600">
-                                                        <Trash2 className="mr-2 h-4 w-4" /> Delete Group
+                                                        <Trash2 className="mr-2 h-4 w-4" /> Delete
                                                     </DropdownMenuItem>
                                                 </DropdownMenuContent>
                                             </DropdownMenu>
@@ -479,52 +479,46 @@ export default function SuperAdminPage() {
         {/* 3. USER DIRECTORY TAB */}
         <TabsContent value="users">
              <Card>
-                <CardHeader className="flex flex-row items-center justify-between">
-                    <div>
-                        <CardTitle>User Directory</CardTitle>
-                        <CardDescription>View and manage all registered users.</CardDescription>
-                    </div>
-                    <Button variant="outline" onClick={downloadUserCSV} className="gap-2">
-                        <Download className="h-4 w-4" /> Export CSV
+                <CardHeader className="flex flex-row items-center justify-between px-4 py-4">
+                    <CardTitle className="text-lg">Users</CardTitle>
+                    <Button variant="outline" size="sm" onClick={downloadUserCSV} className="gap-2 h-8">
+                        <Download className="h-3 w-3" /> <span className="hidden sm:inline">CSV</span>
                     </Button>
                 </CardHeader>
-                <CardContent>
-                    <div className="border rounded-lg overflow-hidden">
-                        <table className="w-full text-sm text-left">
-                            <thead className="bg-slate-100 text-slate-700 font-medium">
+                <CardContent className="p-0">
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-sm text-left whitespace-nowrap">
+                            <thead className="bg-slate-100 text-slate-700 font-medium border-b">
                                 <tr>
-                                    <th className="p-4">Name</th>
-                                    <th className="p-4">Email</th>
-                                    <th className="p-4">Phone</th> {/* New Column */}
-                                    <th className="p-4">Role</th>
-                                    <th className="p-4">Status</th>
-                                    <th className="p-4 text-right">Actions</th>
+                                    <th className="p-3 pl-4">Name</th>
+                                    <th className="p-3">Email</th>
+                                    <th className="p-3">Phone</th>
+                                    <th className="p-3">Status</th>
+                                    <th className="p-3 pr-4 text-right">Action</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
                                 {usersList.map(u => (
                                     <tr key={u.uid} className="hover:bg-slate-50">
-                                        <td className="p-4 font-medium">{u.displayName}</td>
-                                        <td className="p-4 text-slate-500">{u.email}</td>
-                                        <td className="p-4 text-slate-500">{u.phoneNumber || 'N/A'}</td> {/* New Data */}
-                                        <td className="p-4 capitalize">{u.role || 'Member'}</td>
-                                        <td className="p-4">
-                                            <Badge variant={u.status === 'banned' ? 'destructive' : 'outline'}>
+                                        <td className="p-3 pl-4 font-medium max-w-[140px] truncate">{u.displayName}</td>
+                                        <td className="p-3 text-slate-500 max-w-[150px] truncate">{u.email}</td>
+                                        <td className="p-3 text-slate-500">{u.phoneNumber || '-'}</td>
+                                        <td className="p-3">
+                                            <Badge variant={u.status === 'banned' ? 'destructive' : 'outline'} className="text-xs">
                                                 {u.status || 'active'}
                                             </Badge>
                                         </td>
-                                        <td className="p-4 text-right">
+                                        <td className="p-3 pr-4 text-right">
                                             <DropdownMenu>
                                                 <DropdownMenuTrigger asChild>
-                                                    <Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button>
+                                                    <Button variant="ghost" size="icon" className="h-8 w-8"><MoreHorizontal className="h-4 w-4" /></Button>
                                                 </DropdownMenuTrigger>
                                                 <DropdownMenuContent align="end">
-                                                    <DropdownMenuLabel>Actions</DropdownMenuLabel>
                                                     <DropdownMenuItem onClick={() => toggleUserStatus(u)}>
-                                                        {u.status === 'banned' ? <span className="flex items-center text-green-600"><CheckCircle className="mr-2 h-4 w-4"/> Unban</span> : <span className="flex items-center text-amber-600"><Ban className="mr-2 h-4 w-4"/> Ban User</span>}
+                                                        {u.status === 'banned' ? <span className="flex items-center text-green-600"><CheckCircle className="mr-2 h-4 w-4"/> Unban</span> : <span className="flex items-center text-amber-600"><Ban className="mr-2 h-4 w-4"/> Ban</span>}
                                                     </DropdownMenuItem>
                                                     <DropdownMenuItem onClick={() => deleteUser(u.uid)} className="text-red-600">
-                                                        <Trash2 className="mr-2 h-4 w-4" /> Delete User
+                                                        <Trash2 className="mr-2 h-4 w-4" /> Delete
                                                     </DropdownMenuItem>
                                                 </DropdownMenuContent>
                                             </DropdownMenu>
