@@ -4,7 +4,7 @@
   "description": "Digital Savings Circles for Zimbabwe",
   "start_url": "/dashboard",
   "display": "standalone",
-  "background_color": "#F8FAFC",
+  "background_color": "#163F40",
   "theme_color": "#2C514C",
   "icons": [
     {
