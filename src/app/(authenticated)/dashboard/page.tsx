@@ -26,6 +26,8 @@ import {
 } from "firebase/firestore";
 import { getFirebaseApp } from "@/lib/firebase/client";
 import Link from "next/link";
+// --- NEW IMPORT ---
+import { ProfileAlert } from "@/components/profile-alert"; 
 
 // --- THE COLOR PALETTE ---
 const CARD_COLORS = [
@@ -153,6 +155,9 @@ export default function DashboardPage() {
   return (
     <div className="space-y-8 pb-10">
       
+      {/* --- NEW ALERT COMPONENT ADDED HERE --- */}
+      <ProfileAlert />
+
       {/* 1. WELCOME & ACTIONS */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
         <div>
