@@ -1,13 +1,23 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, CheckCircle2, MessageCircle, ArrowRight } from "lucide-react"; // Added MessageCircle
+import { Loader2, CheckCircle2, MessageCircle } from "lucide-react"; 
 import { useToast } from "@/hooks/use-toast";
-import { getFirestore, collection, addDoc, serverTimestamp } from "firebase/firestore";
+import { 
+  getFirestore, 
+  collection, 
+  addDoc, 
+  serverTimestamp,
+  query,
+  where,
+  getDocs,
+  getDoc,
+  doc
+} from "firebase/firestore";
 import { getFirebaseApp } from "@/lib/firebase/client";
 import { useAuth } from "@/components/auth-provider";
 import { logActivity } from "@/lib/services/audit-service";
@@ -23,20 +33,52 @@ export function ClaimPaymentDialog({ isOpen, onOpenChange, groupId }: ClaimPayme
   const { user } = useAuth();
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
-  const [isSuccess, setIsSuccess] = useState(false); // New state for Step 2
+  const [isSuccess, setIsSuccess] = useState(false);
+  const [adminPhone, setAdminPhone] = useState<string | null>(null); // Store dynamic admin phone
   
   const [formData, setFormData] = useState({
     amount: "",
     refNumber: ""
   });
 
-  const adminPaymentDetails = "Send funds to Group Admin via Innbucks: 077 123 4567";
+  const db = getFirestore(getFirebaseApp());
+
+  // --- NEW: FETCH ADMIN PHONE NUMBER AUTOMATICALLY ---
+  useEffect(() => {
+    const fetchAdminNumber = async () => {
+        if (!groupId) return;
+        try {
+            // 1. Find the Admin's User ID in this group
+            const membersRef = collection(db, "groups", groupId, "members");
+            const q = query(membersRef, where("role", "==", "admin"));
+            const snapshot = await getDocs(q);
+
+            if (!snapshot.empty) {
+                const adminId = snapshot.docs[0].id; // Member ID is the User ID
+
+                // 2. Fetch the Admin's Profile to get the phone number
+                const userDoc = await getDoc(doc(db, "users", adminId));
+                if (userDoc.exists()) {
+                    const userData = userDoc.data();
+                    if (userData.phoneNumber) {
+                        setAdminPhone(userData.phoneNumber);
+                    }
+                }
+            }
+        } catch (error) {
+            console.error("Error fetching admin phone:", error);
+        }
+    };
+
+    if (isOpen) {
+        fetchAdminNumber();
+    }
+  }, [isOpen, groupId, db]);
 
   const handleSubmit = async () => {
     if (!user || !formData.amount || !formData.refNumber) return;
 
     setLoading(true);
-    const db = getFirestore(getFirebaseApp());
 
     try {
       const amountCents = parseFloat(formData.amount) * 100;
@@ -63,20 +105,38 @@ export function ClaimPaymentDialog({ isOpen, onOpenChange, groupId }: ClaimPayme
         metadata: { txnId: txnRef.id, amount: amountCents }
       });
 
-      // 3. SWITCH TO SUCCESS SCREEN (Don't close dialog yet)
+      // 3. SWITCH TO SUCCESS SCREEN
       setIsSuccess(true);
       toast({ title: "Saved", description: "Claim recorded successfully." });
 
     } catch (error: any) {
       console.error(error);
       toast({ variant: "destructive", title: "Error", description: "Failed to submit claim." });
-      setLoading(false); // Only stop loading on error, on success we switch views
+      setLoading(false); 
     }
   };
 
   const handleWhatsApp = () => {
+    // 1. Create the message
     const message = `Hi Admin, I have just made a contribution of $${formData.amount} (Ref: ${formData.refNumber}). Please verify and approve on Mukando.`;
-    const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
+    
+    // 2. Format the URL based on whether we found a phone number
+    let whatsappUrl = "";
+
+    if (adminPhone) {
+        // Clean number (remove non-digits)
+        let cleanNumber = adminPhone.replace(/[^\d]/g, '');
+        // Handle Zimbabwe '07' -> '2637'
+        if (cleanNumber.startsWith('07')) {
+            cleanNumber = '263' + cleanNumber.substring(1);
+        }
+        // Direct to specific chat
+        whatsappUrl = `https://wa.me/${cleanNumber}?text=${encodeURIComponent(message)}`;
+    } else {
+        // Fallback: Opens WhatsApp contact picker
+        whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
+    }
+
     window.open(whatsappUrl, '_blank');
     
     // Close dialog after opening WhatsApp
@@ -108,7 +168,13 @@ export function ClaimPaymentDialog({ isOpen, onOpenChange, groupId }: ClaimPayme
             <div className="space-y-4 py-4">
               <div className="p-4 bg-slate-50 rounded-md border border-slate-100">
                 <p className="text-sm font-medium text-slate-500 mb-1">Payment Instructions:</p>
-                <p className="text-md font-bold text-slate-800">{adminPaymentDetails}</p>
+                {adminPhone ? (
+                     <p className="text-md font-bold text-slate-800">
+                        Admin Phone: {adminPhone} <span className="text-xs font-normal text-slate-500">(Innbucks/EcoCash)</span>
+                     </p>
+                ) : (
+                    <p className="text-md font-bold text-slate-800">Contact Admin for payment details</p>
+                )}
               </div>
 
               <div className="space-y-2">
