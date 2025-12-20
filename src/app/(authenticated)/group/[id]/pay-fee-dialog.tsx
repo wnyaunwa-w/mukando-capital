@@ -39,7 +39,7 @@ export function PayFeeDialog({ isOpen, onOpenChange, groupId }: PayFeeDialogProp
   const [currentFeeCents, setCurrentFeeCents] = useState(100); 
 
   // --- ⚠️ UPDATE THIS WITH YOUR REAL ACCOUNT DETAILS ---
-  const paymentInstructions = "Innbucks: 077 123 4567 (Mukando Admin)";
+  const paymentInstructions = "Innbucks: 078 456 7174 (Mukando Admin)";
 
   // 1. Fetch the real fee when dialog opens
   useEffect(() => {
@@ -116,8 +116,15 @@ export function PayFeeDialog({ isOpen, onOpenChange, groupId }: PayFeeDialogProp
   };
 
   const handleWhatsApp = () => {
+    // --- ⚠️ CONFIGURATION: PUT THE SUPER ADMIN NUMBER HERE ---
+    // Format: Country Code + Number (No + sign). e.g., 263771234567
+    const SUPER_ADMIN_PHONE = "263784567174"; 
+
     const message = `Hi Admin, I have just paid the Platform Fee of ${formatCurrency(currentFeeCents)} (Ref: ${refNumber}) for Group: ${groupId}. Please approve my access.`;
-    const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
+    
+    // Direct link to specific number
+    const whatsappUrl = `https://wa.me/${SUPER_ADMIN_PHONE}?text=${encodeURIComponent(message)}`;
+    
     window.open(whatsappUrl, '_blank');
     
     // Close after clicking
