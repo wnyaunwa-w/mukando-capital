@@ -211,21 +211,24 @@ export default function CreateGroupPage() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 pb-20">
             {CATEGORIES.map((cat) => (
+              // UPDATED CARD STYLING
               <Card
                 key={cat.id}
                 className={cn(
-                  "cursor-pointer transition-all hover:scale-[1.02] hover:shadow-lg border-2 border-transparent hover:border-green-100",
-                  "bg-white"
+                  "cursor-pointer transition-all hover:scale-[1.02] hover:shadow-md border",
+                  cat.color // Apply the colored background, text, and border here
                 )}
                 onClick={() => handleCategorySelect(cat)}
               >
                 <CardContent className="p-6 flex flex-col items-start gap-4">
-                  <div className={cn("p-3 rounded-xl", cat.color.split(' ')[0])}> 
+                  {/* Make icon container white so it pops against colored bg */}
+                  <div className="p-3 rounded-xl bg-white shadow-sm"> 
+                    {/* Re-apply just the text color to the icon */}
                     <cat.icon className={cn("h-6 w-6", cat.color.split(' ')[1])} />
                   </div>
                   <div>
-                    <h3 className="font-bold text-lg mb-2 text-slate-800">{cat.label}</h3>
-                    <p className="text-sm text-slate-500 leading-relaxed">
+                    <h3 className="font-bold text-lg mb-2">{cat.label}</h3>
+                    <p className="text-sm opacity-90 leading-relaxed">
                       {cat.description}
                     </p>
                   </div>
