@@ -32,7 +32,7 @@ import { getFirestore, collection, doc, serverTimestamp, writeBatch } from 'fire
 import { getAuth } from 'firebase/auth';
 import { cn } from "@/lib/utils";
 
-// --- 1. NEW CATEGORY DEFINITIONS ---
+// --- CATEGORY DEFINITIONS ---
 const CATEGORIES = [
   { 
     id: "grocery", 
@@ -51,14 +51,14 @@ const CATEGORIES = [
   { 
     id: "borrowing", 
     label: "Borrowing", 
-    description: "A lending circle where members can borrow from the group fund.", 
+    description: "A lending circle where members can borrow.", 
     icon: ArrowLeftRight,
     color: "bg-blue-50 text-blue-700 border-blue-200"
   },
   { 
     id: "birthday", 
     label: "Birthday Savings", 
-    description: "Save small amounts monthly to celebrate member birthdays.", 
+    description: "Save small amounts monthly for birthdays.", 
     icon: Cake,
     color: "bg-pink-50 text-pink-700 border-pink-200"
   },
@@ -72,34 +72,33 @@ const CATEGORIES = [
   { 
     id: "burial", 
     label: "Burial Society", 
-    description: "Provide financial support to members during times of bereavement.", 
+    description: "Financial support during times of bereavement.", 
     icon: HeartHandshake,
     color: "bg-slate-50 text-slate-700 border-slate-200"
   },
   { 
     id: "car", 
     label: "Car Purchase", 
-    description: "Save specifically towards buying vehicles for members.", 
+    description: "Save specifically towards buying vehicles.", 
     icon: Car,
     color: "bg-orange-50 text-orange-700 border-orange-200"
   },
   { 
     id: "housing", 
     label: "Stand Purchase", 
-    description: "Long-term savings for buying residential stands or building.", 
+    description: "Long-term savings for buying residential stands.", 
     icon: Home,
     color: "bg-cyan-50 text-cyan-700 border-cyan-200"
   },
   { 
     id: "other", 
     label: "Other Purposes", 
-    description: "Create a custom group for any other shared goal.", 
+    description: "Create a custom group for any other goal.", 
     icon: MoreHorizontal,
     color: "bg-gray-50 text-gray-700 border-gray-200"
   }
 ];
 
-// Helper to generate a random 6-character alphanumeric code
 function generateInviteCode() {
     return Math.random().toString(36).substring(2, 8).toUpperCase();
 }
@@ -117,7 +116,6 @@ export function CreateGroupDialog({
   const [isLoading, setIsLoading] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
 
-  // Reset state when dialog is closed/opened
   useEffect(() => {
     if (isOpen) {
       setStep(1);
@@ -146,27 +144,20 @@ export function CreateGroupDialog({
       const db = getFirestore(app);
       const user = auth.currentUser;
 
-      if (!user) {
-        throw new Error('You must be logged in to create a group.');
-      }
+      if (!user) throw new Error('You must be logged in.');
       
       const inviteCode = generateInviteCode();
   
-      if (!selectedCategory) {
-          throw new Error('Invalid group type selected.');
-      }
+      if (!selectedCategory) throw new Error('Invalid group type.');
 
-      // Use a write batch to perform atomic operations
       const batch = writeBatch(db);
-
-      // 1. Create the group document reference with a new ID
       const groupRef = doc(collection(db, 'groups'));
       
       const groupData: any = {
         name: groupName,
         description: selectedCategory.description,
-        groupType: selectedCategory.id, // e.g. "grocery"
-        categoryLabel: selectedCategory.label, // Save readable label
+        groupType: selectedCategory.id,
+        categoryLabel: selectedCategory.label,
         currentBalanceCents: 0,
         createdAt: serverTimestamp(),
         ownerId: user.uid,
@@ -175,13 +166,10 @@ export function CreateGroupDialog({
         status: 'active'
       };
     
-      if (whatsappLink) {
-        groupData.whatsappLink = whatsappLink;
-      }
+      if (whatsappLink) groupData.whatsappLink = whatsappLink;
       
       batch.set(groupRef, groupData);
 
-      // 2. Add the creator as the first member (and admin)
       const memberDocRef = doc(db, 'groups', groupRef.id, 'members', user.uid);
       batch.set(memberDocRef, {
         name: user.displayName || user.email?.split('@')[0],
@@ -193,22 +181,14 @@ export function CreateGroupDialog({
         subscriptionStatus: 'unpaid',
       });
       
-      // Commit the batch
       await batch.commit();
       
-      toast({ 
-        title: 'Success!', 
-        description: `Group '${groupName}' created. Invite code: ${inviteCode}` 
-      });
+      toast({ title: 'Success!', description: `Group created.` });
       onOpenChange(false);
 
     } catch (error: any) {
       console.error("Error creating group:", error);
-      toast({
-        title: 'Error',
-        description: error.message || 'Failed to create group.',
-        variant: 'destructive',
-      });
+      toast({ title: 'Error', description: 'Failed to create group.', variant: 'destructive' });
     } finally {
       setIsLoading(false);
     }
@@ -221,13 +201,13 @@ export function CreateGroupDialog({
 
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
-      {/* Increased max-width to xl for the grid layout */}
-      <DialogContent className="sm:max-w-4xl w-[95vw] flex flex-col max-h-[90vh] font-sans p-0 overflow-hidden">
+      {/* FORCE HEIGHT: Added h-[80vh] to ensure it is visible */}
+      <DialogContent className="sm:max-w-4xl w-[95vw] h-[80vh] flex flex-col font-sans p-0 overflow-hidden bg-white">
         
         {/* --- STEP 1: CATEGORY SELECTION --- */}
         {step === 1 && (
-          <div className="flex flex-col h-full">
-            <DialogHeader className="px-6 pt-6 pb-2">
+          <div className="flex flex-col h-full w-full">
+            <DialogHeader className="px-6 pt-6 pb-4 shrink-0">
               <DialogTitle className="text-2xl font-bold tracking-tight text-[#122932] text-center">
                 Create New Group
               </DialogTitle>
@@ -236,8 +216,9 @@ export function CreateGroupDialog({
               </DialogDescription>
             </DialogHeader>
             
-            <div className="flex-grow overflow-y-auto p-6 bg-slate-50/50">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {/* FORCE VISIBILITY: Added min-h and background */}
+            <div className="flex-grow overflow-y-auto p-6 bg-slate-50 border-t border-slate-100 min-h-[300px]">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pb-10">
                 {CATEGORIES.map((cat) => (
                   <Card
                     key={cat.id}
@@ -253,7 +234,7 @@ export function CreateGroupDialog({
                       </div>
                       <div>
                         <h3 className="font-bold text-lg mb-1">{cat.label}</h3>
-                        <p className="text-xs opacity-80 leading-relaxed font-medium">
+                        <p className="text-xs opacity-90 leading-relaxed font-medium">
                           {cat.description}
                         </p>
                       </div>
@@ -263,7 +244,7 @@ export function CreateGroupDialog({
               </div>
             </div>
             
-            <DialogFooter className="p-4 border-t bg-white">
+            <DialogFooter className="p-4 border-t bg-white shrink-0">
                <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
             </DialogFooter>
           </div>
@@ -320,13 +301,10 @@ export function CreateGroupDialog({
                       placeholder="https://chat.whatsapp.com/..." 
                       className="h-12"
                     />
-                    <p className="text-xs text-slate-500">
-                      Allows members to join your WhatsApp group directly from the dashboard.
-                    </p>
                 </div>
               </div>
 
-              <DialogFooter className="mt-8">
+              <DialogFooter className="mt-8 pb-6">
                 <Button type="button" variant="outline" onClick={() => setStep(1)} className="font-medium">
                   Change Category
                 </Button>
