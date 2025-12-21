@@ -8,11 +8,29 @@ import { useAuth } from "@/components/auth-provider";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2, Copy, Lock, ArrowLeft, MessageCircle, Clock } from "lucide-react"; 
+import { 
+  Loader2, 
+  Copy, 
+  Lock, 
+  ArrowLeft, 
+  MessageCircle, 
+  Clock,
+  // New Icons for Categories
+  ShoppingCart, 
+  PiggyBank, 
+  ArrowLeftRight, 
+  Cake, 
+  TrendingUp, 
+  HeartHandshake, 
+  Car, 
+  Home, 
+  MoreHorizontal
+} from "lucide-react"; 
 import { formatCurrency } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { getFirebaseApp } from "@/lib/firebase/client";
 import { getFirestore, doc, onSnapshot, getDoc } from "firebase/firestore";
+import { cn } from "@/lib/utils";
 
 // Component Imports
 import { TransactionLedger } from "./transaction-ledger";
@@ -25,10 +43,21 @@ import { PayFeeDialog } from "./pay-fee-dialog";
 import type { Group, Member } from "@/lib/types";
 
 // --- ⚠️ CONFIGURATION: SUPER ADMIN WHATSAPP NUMBER ---
-// Format: CountryCode + Number (No + sign). e.g., 263771234567
 const SUPER_ADMIN_PHONE = "263784567174"; 
 
-// --- FIXED INTERFACE ---
+// --- CATEGORY CONFIGURATION ---
+const CATEGORY_CONFIG: Record<string, { label: string; icon: any; color: string; textColor: string }> = {
+  grocery: { label: "Grocery", icon: ShoppingCart, color: "bg-green-100", textColor: "text-green-700" },
+  savings: { label: "Savings", icon: PiggyBank, color: "bg-emerald-100", textColor: "text-emerald-700" },
+  borrowing: { label: "Borrowing", icon: ArrowLeftRight, color: "bg-blue-100", textColor: "text-blue-700" },
+  birthday: { label: "Birthday", icon: Cake, color: "bg-pink-100", textColor: "text-pink-700" },
+  investment: { label: "Investment", icon: TrendingUp, color: "bg-purple-100", textColor: "text-purple-700" },
+  burial: { label: "Burial Society", icon: HeartHandshake, color: "bg-slate-100", textColor: "text-slate-700" },
+  car: { label: "Car Purchase", icon: Car, color: "bg-orange-100", textColor: "text-orange-700" },
+  housing: { label: "Stand Purchase", icon: Home, color: "bg-cyan-100", textColor: "text-cyan-700" },
+  other: { label: "General", icon: MoreHorizontal, color: "bg-gray-100", textColor: "text-gray-700" },
+};
+
 interface ExtendedMember extends Member {
   subscriptionStatus?: string;
   subscriptionEndsAt?: string;
@@ -102,17 +131,11 @@ function GroupContent() {
 
   const checkSubscription = () => {
     if (!currentMember) return { status: 'loading' };
-
-    // 1. Check Pending Approval FIRST
-    if (currentMember.subscriptionStatus === 'pending_approval') {
-        return { status: 'pending' };
-    }
-
-    // 2. Check Active
+    if (currentMember.subscriptionStatus === 'pending_approval') return { status: 'pending' };
+    
     const isActive = currentMember.subscriptionStatus === 'active';
     if (!isActive) return { status: 'inactive' };
 
-    // 3. Check Expiry
     if (currentMember.subscriptionEndsAt) {
         const expiryDate = new Date(currentMember.subscriptionEndsAt);
         const today = new Date();
@@ -129,7 +152,16 @@ function GroupContent() {
   const isLocked = subState.status === 'inactive' || subState.status === 'expired' || isPending;
   const isAdmin = currentMember?.role === 'admin';
 
-  // --- WHATSAPP SHARE FUNCTION ---
+  // --- GET CATEGORY STYLING ---
+  const getCategoryStyle = () => {
+    if (!group) return null;
+    const type = (group as any).groupType || 'other';
+    return CATEGORY_CONFIG[type] || CATEGORY_CONFIG['other'];
+  };
+
+  const categoryStyle = getCategoryStyle();
+
+  // --- WHATSAPP SHARE ---
   const shareToWhatsApp = () => {
     if (!group) return;
     const inviteCode = group.id.substring(0,6).toUpperCase();
@@ -145,10 +177,8 @@ function GroupContent() {
     }
   }
 
-  // --- FIXED: CONTACT ADMIN FOR APPROVAL ---
   const contactAdminForApproval = () => {
       const message = `Hi Admin, checking on my Platform Fee approval for group ${group?.name}. My payment ref was ${currentMember?.lastPaymentRef || 'sent recently'}.`;
-      // Use the specific Super Admin number
       const url = `https://wa.me/${SUPER_ADMIN_PHONE}?text=${encodeURIComponent(message)}`;
       window.open(url, '_blank');
   }
@@ -169,14 +199,23 @@ function GroupContent() {
                 onClick={shareToWhatsApp}
                 className="hidden md:flex bg-[#25D366] hover:bg-[#128C7E] text-white gap-2 font-semibold shadow-sm"
             >
-                <MessageCircle className="w-4 h-4" /> Invite Members via WhatsApp
+                <MessageCircle className="w-4 h-4" /> Invite Members
             </Button>
         </div>
 
         <div className="w-full break-words flex flex-col md:flex-row justify-between items-start gap-4">
             <div className="flex-1">
+                {/* NEW: CATEGORY BADGE */}
+                {categoryStyle && (
+                    <div className={cn("inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold mb-3", categoryStyle.color, categoryStyle.textColor)}>
+                        <categoryStyle.icon className="w-3.5 h-3.5" />
+                        <span>{categoryStyle.label}</span>
+                    </div>
+                )}
+
                 <h1 className="text-3xl md:text-4xl font-bold text-[#122932] leading-tight">{group.name}</h1>
                 <p className="text-gray-500 mt-1 text-sm md:text-base">{group.description}</p>
+                
                 <div className="flex items-center gap-3 mt-3">
                     <div className="flex items-center gap-2 bg-slate-100 border border-slate-200 px-3 py-1 rounded-md">
                         <span className="text-xs font-bold text-slate-500 uppercase">Code:</span>
@@ -194,7 +233,7 @@ function GroupContent() {
                 onClick={shareToWhatsApp}
                 className="md:hidden w-full bg-[#25D366] hover:bg-[#128C7E] text-white gap-2 font-bold h-12 shadow-sm"
             >
-                <MessageCircle className="w-5 h-5" /> Invite Members via WhatsApp
+                <MessageCircle className="w-5 h-5" /> Invite Members
             </Button>
         </div>
       </div>
@@ -247,15 +286,14 @@ function GroupContent() {
         <Button 
             className="bg-[#576066] hover:bg-[#464e54] text-white h-12 w-full font-bold shadow-sm" 
             onClick={() => setIsPayFeeOpen(true)}
-            disabled={isPending} // Disable if already paid/pending
+            disabled={isPending} 
         >
             {isPending ? "Payment Under Review" : `Pay Platform Fee (${formatCurrency(platformFee)})`}
         </Button>
       </div>
 
-      {/* TABS & CONTENT - LOCKED/PENDING STATE HANDLING */}
+      {/* TABS & CONTENT */}
       {isPending ? (
-          // --- PENDING APPROVAL VIEW ---
           <div className="text-center py-20 bg-amber-50 border-2 border-dashed border-amber-200 rounded-xl flex flex-col items-center justify-center gap-3">
             <div className="bg-amber-100 p-4 rounded-full animate-pulse">
                 <Clock className="h-12 w-12 text-amber-600" />
@@ -273,7 +311,6 @@ function GroupContent() {
             </Button>
         </div>
       ) : isLocked ? (
-          // --- LOCKED VIEW ---
           <div className="text-center py-20 bg-slate-50 border-2 border-dashed border-slate-200 rounded-xl flex flex-col items-center justify-center gap-3">
               <div className="bg-slate-100 p-4 rounded-full">
                   <Lock className="h-12 w-12 text-slate-400" />
@@ -290,9 +327,7 @@ function GroupContent() {
               </Button>
           </div>
       ) : (
-        // --- ACTIVE TABS VIEW ---
         <Tabs defaultValue="ledger" className="w-full mt-4">
-            
             <div className="w-full overflow-x-auto pb-2 scrollbar-hide">
                 <TabsList className="w-auto inline-flex justify-start h-auto p-0 bg-transparent space-x-6">
                     <TabsTrigger value="ledger" className="border-b-2 border-transparent data-[state=active]:border-[#2C514C] data-[state=active]:text-[#2C514C] pb-2 bg-transparent whitespace-nowrap font-medium text-slate-500">Ledger</TabsTrigger>
