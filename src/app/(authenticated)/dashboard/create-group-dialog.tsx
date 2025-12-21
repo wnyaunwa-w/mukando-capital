@@ -13,12 +13,91 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2 } from 'lucide-react';
-import { GROUP_TYPES, type GroupType } from '@/lib/group-types';
-import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { 
+  Loader2, 
+  ShoppingCart, 
+  PiggyBank, 
+  ArrowLeftRight, 
+  Cake, 
+  TrendingUp, 
+  HeartHandshake, 
+  Car, 
+  Home, 
+  MoreHorizontal,
+  ChevronLeft 
+} from 'lucide-react';
+import { Card, CardContent } from '@/components/ui/card';
 import { getFirebaseApp } from '@/lib/firebase/client';
 import { getFirestore, collection, doc, serverTimestamp, writeBatch } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
+import { cn } from "@/lib/utils";
+
+// --- 1. NEW CATEGORY DEFINITIONS ---
+const CATEGORIES = [
+  { 
+    id: "grocery", 
+    label: "Grocery", 
+    description: "Pool funds together for bulk grocery purchases.", 
+    icon: ShoppingCart,
+    color: "bg-green-50 text-green-700 border-green-200"
+  },
+  { 
+    id: "savings", 
+    label: "Savings", 
+    description: "A general-purpose group for collective savings goals.", 
+    icon: PiggyBank,
+    color: "bg-emerald-50 text-emerald-700 border-emerald-200"
+  },
+  { 
+    id: "borrowing", 
+    label: "Borrowing", 
+    description: "A lending circle where members can borrow from the group fund.", 
+    icon: ArrowLeftRight,
+    color: "bg-blue-50 text-blue-700 border-blue-200"
+  },
+  { 
+    id: "birthday", 
+    label: "Birthday Savings", 
+    description: "Save small amounts monthly to celebrate member birthdays.", 
+    icon: Cake,
+    color: "bg-pink-50 text-pink-700 border-pink-200"
+  },
+  { 
+    id: "investment", 
+    label: "Investments", 
+    description: "Pool capital for joint investment opportunities.", 
+    icon: TrendingUp,
+    color: "bg-purple-50 text-purple-700 border-purple-200"
+  },
+  { 
+    id: "burial", 
+    label: "Burial Society", 
+    description: "Provide financial support to members during times of bereavement.", 
+    icon: HeartHandshake,
+    color: "bg-slate-50 text-slate-700 border-slate-200"
+  },
+  { 
+    id: "car", 
+    label: "Car Purchase", 
+    description: "Save specifically towards buying vehicles for members.", 
+    icon: Car,
+    color: "bg-orange-50 text-orange-700 border-orange-200"
+  },
+  { 
+    id: "housing", 
+    label: "Stand Purchase", 
+    description: "Long-term savings for buying residential stands or building.", 
+    icon: Home,
+    color: "bg-cyan-50 text-cyan-700 border-cyan-200"
+  },
+  { 
+    id: "other", 
+    label: "Other Purposes", 
+    description: "Create a custom group for any other shared goal.", 
+    icon: MoreHorizontal,
+    color: "bg-gray-50 text-gray-700 border-gray-200"
+  }
+];
 
 // Helper to generate a random 6-character alphanumeric code
 function generateInviteCode() {
@@ -34,7 +113,7 @@ export function CreateGroupDialog({
 }) {
   const { toast } = useToast();
   const [step, setStep] = useState(1);
-  const [selectedType, setSelectedType] = useState<GroupType | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState<typeof CATEGORIES[0] | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
 
@@ -42,7 +121,7 @@ export function CreateGroupDialog({
   useEffect(() => {
     if (isOpen) {
       setStep(1);
-      setSelectedType(null);
+      setSelectedCategory(null);
       setIsLoading(false);
     }
   }, [isOpen]);
@@ -53,7 +132,6 @@ export function CreateGroupDialog({
 
     const formData = new FormData(event.currentTarget);
     const groupName = formData.get('groupName') as string;
-    const groupType = formData.get('groupType') as string;
     const whatsappLink = formData.get('whatsappLink') as string;
 
     if (!groupName || groupName.length < 3) {
@@ -73,9 +151,8 @@ export function CreateGroupDialog({
       }
       
       const inviteCode = generateInviteCode();
-      const selectedGroupType = GROUP_TYPES.find(t => t.id === groupType);
   
-      if (!selectedGroupType) {
+      if (!selectedCategory) {
           throw new Error('Invalid group type selected.');
       }
 
@@ -87,13 +164,14 @@ export function CreateGroupDialog({
       
       const groupData: any = {
         name: groupName,
-        description: selectedGroupType.description,
-        groupType: groupType,
+        description: selectedCategory.description,
+        groupType: selectedCategory.id, // e.g. "grocery"
+        categoryLabel: selectedCategory.label, // Save readable label
         currentBalanceCents: 0,
         createdAt: serverTimestamp(),
         ownerId: user.uid,
         inviteCode: inviteCode,
-        memberIds: [user.uid], // CRITICAL: Add creator to the memberIds array
+        memberIds: [user.uid],
         status: 'active'
       };
     
@@ -103,12 +181,13 @@ export function CreateGroupDialog({
       
       batch.set(groupRef, groupData);
 
-      // 2. Add the creator as the first member (and admin) in the subcollection
+      // 2. Add the creator as the first member (and admin)
       const memberDocRef = doc(db, 'groups', groupRef.id, 'members', user.uid);
       batch.set(memberDocRef, {
         name: user.displayName || user.email?.split('@')[0],
         avatarUrl: user.photoURL || `https://i.pravatar.cc/150?u=${user.uid}`,
         balanceCents: 0,
+        contributionBalanceCents: 0,
         role: 'admin',
         joinedAt: serverTimestamp(),
         subscriptionStatus: 'unpaid',
@@ -135,81 +214,123 @@ export function CreateGroupDialog({
     }
   }
 
-
-  const handleTypeSelect = (type: GroupType) => {
-    setSelectedType(type);
+  const handleCategorySelect = (cat: typeof CATEGORIES[0]) => {
+    setSelectedCategory(cat);
     setStep(2);
   };
 
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
-      {/* UPDATED: Added font-sans to the content wrapper */}
-      <DialogContent className="sm:max-w-lg w-[95vw] flex flex-col max-h-[80vh] font-sans">
+      {/* Increased max-width to xl for the grid layout */}
+      <DialogContent className="sm:max-w-4xl w-[95vw] flex flex-col max-h-[90vh] font-sans p-0 overflow-hidden">
+        
+        {/* --- STEP 1: CATEGORY SELECTION --- */}
         {step === 1 && (
-          <>
-            <DialogHeader>
-              {/* UPDATED: Added font-bold, tracking-tight, text-green-900 */}
-              <DialogTitle className="text-2xl font-bold tracking-tight text-green-900">Create New Group</DialogTitle>
-              <DialogDescription className="text-gray-600">
+          <div className="flex flex-col h-full">
+            <DialogHeader className="px-6 pt-6 pb-2">
+              <DialogTitle className="text-2xl font-bold tracking-tight text-[#122932] text-center">
+                Create New Group
+              </DialogTitle>
+              <DialogDescription className="text-center text-slate-500">
                 First, select the type of group you want to create.
               </DialogDescription>
             </DialogHeader>
-            <div className="flex-grow overflow-y-auto -mx-6 px-6">
-              <div className="grid grid-cols-2 gap-4 py-4 pb-10">
-                {GROUP_TYPES.map((type) => (
+            
+            <div className="flex-grow overflow-y-auto p-6 bg-slate-50/50">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {CATEGORIES.map((cat) => (
                   <Card
-                    key={type.id}
-                    className="cursor-pointer hover:bg-green-50 hover:border-green-200 transition-all border-gray-100"
-                    onClick={() => handleTypeSelect(type)}
+                    key={cat.id}
+                    className={cn(
+                      "cursor-pointer transition-all hover:scale-[1.02] hover:shadow-md border",
+                      cat.color
+                    )}
+                    onClick={() => handleCategorySelect(cat)}
                   >
-                    <CardHeader>
-                      <type.icon className="h-6 w-6 mb-2 text-green-700" />
-                      {/* UPDATED: Added font-bold tracking-tight */}
-                      <CardTitle className="text-base font-bold tracking-tight text-gray-900">{type.label}</CardTitle>
-                      <CardDescription className="text-xs text-gray-500">{type.description}</CardDescription>
-                    </CardHeader>
+                    <CardContent className="p-5 flex flex-col items-start gap-3">
+                      <div className="p-2.5 bg-white/80 backdrop-blur rounded-xl shadow-sm">
+                        <cat.icon className="h-6 w-6" />
+                      </div>
+                      <div>
+                        <h3 className="font-bold text-lg mb-1">{cat.label}</h3>
+                        <p className="text-xs opacity-80 leading-relaxed font-medium">
+                          {cat.description}
+                        </p>
+                      </div>
+                    </CardContent>
                   </Card>
                 ))}
               </div>
             </div>
-          </>
+            
+            <DialogFooter className="p-4 border-t bg-white">
+               <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
+            </DialogFooter>
+          </div>
         )}
-        {step === 2 && selectedType && (
-          <div className="flex flex-col h-full">
-            <DialogHeader>
-              {/* UPDATED: Added font-bold tracking-tight */}
-              <DialogTitle className="text-xl font-bold tracking-tight text-green-900">
-                Details for &quot;{selectedType.label}&quot; Group
-              </DialogTitle>
-              <DialogDescription className="text-gray-600">
-                Give your new group a name and optionally add a WhatsApp chat link.
+
+        {/* --- STEP 2: GROUP DETAILS FORM --- */}
+        {step === 2 && selectedCategory && (
+          <div className="flex flex-col h-full sm:max-w-lg mx-auto w-full">
+            <DialogHeader className="px-6 pt-6">
+              <div className="flex items-center gap-2 mb-2">
+                 <Button variant="ghost" size="icon" onClick={() => setStep(1)} className="h-8 w-8 -ml-2">
+                    <ChevronLeft className="h-5 w-5" />
+                 </Button>
+                 <DialogTitle className="text-xl font-bold tracking-tight text-[#122932]">
+                   Group Details
+                 </DialogTitle>
+              </div>
+              <DialogDescription>
+                Set up your <strong>{selectedCategory.label}</strong> group.
               </DialogDescription>
             </DialogHeader>
-            <form ref={formRef} onSubmit={handleCreateGroup} className="flex-grow flex flex-col space-y-4">
-              <input type="hidden" name="groupType" value={selectedType.id} />
-              <div className="grid gap-4 py-4">
-                 <div className="grid gap-2">
-                    <Label htmlFor="groupName" className="font-semibold text-gray-700">Group Name</Label>
-                    <div className="flex items-center gap-4">
-                        <div className="bg-green-50 p-3 rounded-lg">
-                            <selectedType.icon className="h-6 w-6 text-green-700" />
-                        </div>
-                        <Input id="groupName" name="groupName" placeholder={`e.g., ${selectedType.label} Fund`} autoFocus className="flex-1" />
+
+            <form ref={formRef} onSubmit={handleCreateGroup} className="flex-grow flex flex-col px-6 py-4">
+              <input type="hidden" name="groupType" value={selectedCategory.id} />
+              
+              <div className="space-y-6">
+                 {/* Selected Category Preview */}
+                 <div className={cn("flex items-center gap-4 p-4 rounded-xl border", selectedCategory.color)}>
+                    <div className="p-2 bg-white rounded-lg shadow-sm">
+                        <selectedCategory.icon className="h-6 w-6" />
                     </div>
+                    <div>
+                        <p className="font-bold text-sm">{selectedCategory.label}</p>
+                        <p className="text-xs opacity-80">{selectedCategory.description}</p>
+                    </div>
+                 </div>
+
+                 <div className="grid gap-2">
+                    <Label htmlFor="groupName" className="font-semibold text-slate-700">Group Name</Label>
+                    <Input 
+                      id="groupName" 
+                      name="groupName" 
+                      placeholder={`e.g., My ${selectedCategory.label} Circle`} 
+                      autoFocus 
+                      className="h-12 text-lg" 
+                    />
                 </div>
 
                 <div className="grid gap-2">
-                    <Label htmlFor="whatsappLink" className="font-semibold text-gray-700">WhatsApp Invite Link (Optional)</Label>
-                    <Input id="whatsappLink" name="whatsappLink" placeholder="https://chat.whatsapp.com/..." />
+                    <Label htmlFor="whatsappLink" className="font-semibold text-slate-700">WhatsApp Invite Link (Optional)</Label>
+                    <Input 
+                      id="whatsappLink" 
+                      name="whatsappLink" 
+                      placeholder="https://chat.whatsapp.com/..." 
+                      className="h-12"
+                    />
+                    <p className="text-xs text-slate-500">
+                      Allows members to join your WhatsApp group directly from the dashboard.
+                    </p>
                 </div>
               </div>
 
-              <DialogFooter className="mt-auto pt-4 border-t">
-                <Button type="button" variant="ghost" onClick={() => setStep(1)} className="font-medium">
-                  Back
+              <DialogFooter className="mt-8">
+                <Button type="button" variant="outline" onClick={() => setStep(1)} className="font-medium">
+                  Change Category
                 </Button>
-                {/* UPDATED: Button style to match theme */}
-                <Button type="submit" disabled={isLoading} className="bg-green-700 hover:bg-green-800 font-bold">
+                <Button type="submit" disabled={isLoading} className="bg-[#2C514C] hover:bg-[#25423e] font-bold min-w-[120px]">
                     {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                     Create Group
                 </Button>
