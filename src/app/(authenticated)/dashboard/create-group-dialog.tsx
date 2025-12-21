@@ -1,17 +1,11 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { 
   Loader2, 
@@ -24,7 +18,9 @@ import {
   Car, 
   Home, 
   MoreHorizontal,
-  ChevronLeft 
+  ChevronLeft,
+  RefreshCw,
+  ArrowLeft
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { getFirebaseApp } from '@/lib/firebase/client';
@@ -32,7 +28,7 @@ import { getFirestore, collection, doc, serverTimestamp, writeBatch } from 'fire
 import { getAuth } from 'firebase/auth';
 import { cn } from "@/lib/utils";
 
-// --- CATEGORY DEFINITIONS ---
+// --- 1. CATEGORY DEFINITIONS ---
 const CATEGORIES = [
   { 
     id: "grocery", 
@@ -99,41 +95,41 @@ const CATEGORIES = [
   }
 ];
 
+// Helper: Generate Random Code
 function generateInviteCode() {
     return Math.random().toString(36).substring(2, 8).toUpperCase();
 }
 
-export function CreateGroupDialog({
-  isOpen,
-  onOpenChange,
-}: {
-  isOpen: boolean;
-  onOpenChange: (isOpen: boolean) => void;
-}) {
+export default function CreateGroupPage() {
+  const router = useRouter();
   const { toast } = useToast();
+  
+  // State
   const [step, setStep] = useState(1);
   const [selectedCategory, setSelectedCategory] = useState<typeof CATEGORIES[0] | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const formRef = useRef<HTMLFormElement>(null);
+  const [inviteCode, setInviteCode] = useState("");
 
+  // Initialize Code on Load
   useEffect(() => {
-    if (isOpen) {
-      setStep(1);
-      setSelectedCategory(null);
-      setIsLoading(false);
-    }
-  }, [isOpen]);
-  
+    setInviteCode(generateInviteCode());
+  }, []);
+
+  const refreshCode = () => setInviteCode(generateInviteCode());
+
+  // --- SUBMIT HANDLER ---
   const handleCreateGroup = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setIsLoading(true);
 
     const formData = new FormData(event.currentTarget);
     const groupName = formData.get('groupName') as string;
-    const whatsappLink = formData.get('whatsappLink') as string;
+    const amountStr = formData.get('amount') as string;
+    const description = formData.get('description') as string;
 
+    // Validation
     if (!groupName || groupName.length < 3) {
-      toast({ title: 'Validation Error', description: 'Group name must be at least 3 characters.', variant: 'destructive' });
+      toast({ title: 'Error', description: 'Group name is too short.', variant: 'destructive' });
       setIsLoading(false);
       return;
     }
@@ -145,19 +141,17 @@ export function CreateGroupDialog({
       const user = auth.currentUser;
 
       if (!user) throw new Error('You must be logged in.');
-      
-      const inviteCode = generateInviteCode();
-  
-      if (!selectedCategory) throw new Error('Invalid group type.');
+      if (!selectedCategory) throw new Error('No category selected.');
 
       const batch = writeBatch(db);
       const groupRef = doc(collection(db, 'groups'));
       
       const groupData: any = {
         name: groupName,
-        description: selectedCategory.description,
+        description: description || selectedCategory.description,
         groupType: selectedCategory.id,
         categoryLabel: selectedCategory.label,
+        monthlyAmount: amountStr ? parseFloat(amountStr) : 0,
         currentBalanceCents: 0,
         createdAt: serverTimestamp(),
         ownerId: user.uid,
@@ -165,11 +159,10 @@ export function CreateGroupDialog({
         memberIds: [user.uid],
         status: 'active'
       };
-    
-      if (whatsappLink) groupData.whatsappLink = whatsappLink;
       
       batch.set(groupRef, groupData);
 
+      // Add Creator as Admin
       const memberDocRef = doc(db, 'groups', groupRef.id, 'members', user.uid);
       batch.set(memberDocRef, {
         name: user.displayName || user.email?.split('@')[0],
@@ -183,8 +176,8 @@ export function CreateGroupDialog({
       
       await batch.commit();
       
-      toast({ title: 'Success!', description: `Group created.` });
-      onOpenChange(false);
+      toast({ title: 'Success!', description: `Group '${groupName}' created!` });
+      router.push(`/group/${groupRef.id}`);
 
     } catch (error: any) {
       console.error("Error creating group:", error);
@@ -192,7 +185,7 @@ export function CreateGroupDialog({
     } finally {
       setIsLoading(false);
     }
-  }
+  };
 
   const handleCategorySelect = (cat: typeof CATEGORIES[0]) => {
     setSelectedCategory(cat);
@@ -200,123 +193,140 @@ export function CreateGroupDialog({
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={onOpenChange}>
-      {/* FORCE HEIGHT: Added h-[80vh] to ensure it is visible */}
-      <DialogContent className="sm:max-w-4xl w-[95vw] h-[80vh] flex flex-col font-sans p-0 overflow-hidden bg-white">
-        
-        {/* --- STEP 1: CATEGORY SELECTION --- */}
-        {step === 1 && (
-          <div className="flex flex-col h-full w-full">
-            <DialogHeader className="px-6 pt-6 pb-4 shrink-0">
-              <DialogTitle className="text-2xl font-bold tracking-tight text-[#122932] text-center">
-                Create New Group
-              </DialogTitle>
-              <DialogDescription className="text-center text-slate-500">
-                First, select the type of group you want to create.
-              </DialogDescription>
-            </DialogHeader>
-            
-            {/* FORCE VISIBILITY: Added min-h and background */}
-            <div className="flex-grow overflow-y-auto p-6 bg-slate-50 border-t border-slate-100 min-h-[300px]">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pb-10">
-                {CATEGORIES.map((cat) => (
-                  <Card
-                    key={cat.id}
-                    className={cn(
-                      "cursor-pointer transition-all hover:scale-[1.02] hover:shadow-md border",
-                      cat.color
-                    )}
-                    onClick={() => handleCategorySelect(cat)}
-                  >
-                    <CardContent className="p-5 flex flex-col items-start gap-3">
-                      <div className="p-2.5 bg-white/80 backdrop-blur rounded-xl shadow-sm">
-                        <cat.icon className="h-6 w-6" />
-                      </div>
-                      <div>
-                        <h3 className="font-bold text-lg mb-1">{cat.label}</h3>
-                        <p className="text-xs opacity-90 leading-relaxed font-medium">
-                          {cat.description}
-                        </p>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
+    <div className="min-h-screen bg-slate-50 p-4 md:p-8 font-sans">
+      
+      {/* HEADER: Back Button */}
+      <div className="max-w-4xl mx-auto mb-6">
+        <Button 
+            variant="ghost" 
+            onClick={() => step === 2 ? setStep(1) : router.back()} 
+            className="text-slate-500 hover:text-slate-800 pl-0"
+        >
+            <ArrowLeft className="mr-2 h-4 w-4" /> 
+            {step === 2 ? "Back to Categories" : "Back to Dashboard"}
+        </Button>
+      </div>
+
+      {/* --- STEP 1: CATEGORY SELECTION --- */}
+      {step === 1 && (
+        <div className="max-w-5xl mx-auto">
+          <div className="text-center mb-10 space-y-2">
+             <h1 className="text-3xl font-bold text-[#122932]">Create New Group</h1>
+             <p className="text-slate-500">First, select the type of group you want to create.</p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+            {CATEGORIES.map((cat) => (
+              <Card
+                key={cat.id}
+                className={cn(
+                  "cursor-pointer transition-all hover:scale-[1.02] hover:shadow-lg border-2 border-transparent hover:border-green-100",
+                  "bg-white"
+                )}
+                onClick={() => handleCategorySelect(cat)}
+              >
+                <CardContent className="p-6 flex flex-col items-start gap-4">
+                  <div className={cn("p-3 rounded-xl", cat.color.split(' ')[0])}> {/* Uses just the bg color part */}
+                    <cat.icon className={cn("h-6 w-6", cat.color.split(' ')[1])} /> {/* Uses just the text color part */}
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-lg mb-2 text-slate-800">{cat.label}</h3>
+                    <p className="text-sm text-slate-500 leading-relaxed">
+                      {cat.description}
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* --- STEP 2: GREEN FORM (Matches Your Screenshot) --- */}
+      {step === 2 && selectedCategory && (
+        <div className="max-w-2xl mx-auto">
+            <div className="bg-[#2C514C] text-white rounded-2xl shadow-xl overflow-hidden">
+                
+                {/* Header Section */}
+                <div className="p-8 border-b border-white/10">
+                    <h2 className="text-2xl font-bold mb-1">Create New Group</h2>
+                    <p className="text-green-100/80">Start a new saving circle. You will be the Admin.</p>
+                    
+                    {/* Category Badge */}
+                    <div className="mt-4 inline-flex items-center gap-2 bg-white/10 px-3 py-1.5 rounded-lg border border-white/20">
+                        <selectedCategory.icon className="h-4 w-4 text-green-300" />
+                        <span className="text-sm font-medium text-green-50">{selectedCategory.label}</span>
+                    </div>
+                </div>
+
+                {/* Form Section */}
+                <div className="p-8 pt-6">
+                    <form onSubmit={handleCreateGroup} className="space-y-6">
+                        
+                        {/* Row 1: ID and Amount */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div className="space-y-2">
+                                <Label htmlFor="inviteCode" className="text-green-100 font-medium">Group ID (Invite Code)</Label>
+                                <div className="flex gap-2">
+                                    <div className="flex-1 bg-white rounded-md h-10 flex items-center justify-center font-mono font-bold text-slate-800 tracking-widest shadow-sm">
+                                        {inviteCode}
+                                    </div>
+                                    <Button type="button" size="icon" variant="secondary" onClick={refreshCode} className="shrink-0 bg-white/20 hover:bg-white/30 text-white border-0">
+                                        <RefreshCw className="h-4 w-4" />
+                                    </Button>
+                                </div>
+                                <p className="text-xs text-green-200/60">This code is auto-generated.</p>
+                            </div>
+
+                            <div className="space-y-2">
+                                <Label htmlFor="amount" className="text-green-100 font-medium">Monthly Amount ($)</Label>
+                                <Input 
+                                    id="amount" 
+                                    name="amount" 
+                                    type="number" 
+                                    placeholder="100" 
+                                    className="bg-white text-slate-900 border-0 focus-visible:ring-2 focus-visible:ring-green-400"
+                                />
+                            </div>
+                        </div>
+
+                        {/* Row 2: Name */}
+                        <div className="space-y-2">
+                            <Label htmlFor="groupName" className="text-green-100 font-medium">Group Name</Label>
+                            <Input 
+                                id="groupName" 
+                                name="groupName" 
+                                placeholder="e.g. Johnson Family Savings" 
+                                className="bg-white text-slate-900 border-0 focus-visible:ring-2 focus-visible:ring-green-400 h-12 text-lg"
+                                autoFocus
+                            />
+                        </div>
+
+                        {/* Row 3: Description */}
+                        <div className="space-y-2">
+                            <Label htmlFor="description" className="text-green-100 font-medium">Description (Optional)</Label>
+                            <Textarea 
+                                id="description" 
+                                name="description" 
+                                placeholder="What is this group for?" 
+                                className="bg-white text-slate-900 border-0 focus-visible:ring-2 focus-visible:ring-green-400 min-h-[100px]"
+                            />
+                        </div>
+
+                        {/* Submit Button */}
+                        <Button 
+                            type="submit" 
+                            disabled={isLoading}
+                            className="w-full bg-white text-[#2C514C] hover:bg-green-50 font-bold h-12 text-lg shadow-lg mt-4"
+                        >
+                            {isLoading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : "+ Create Group"}
+                        </Button>
+
+                    </form>
+                </div>
             </div>
-            
-            <DialogFooter className="p-4 border-t bg-white shrink-0">
-               <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
-            </DialogFooter>
-          </div>
-        )}
-
-        {/* --- STEP 2: GROUP DETAILS FORM --- */}
-        {step === 2 && selectedCategory && (
-          <div className="flex flex-col h-full sm:max-w-lg mx-auto w-full">
-            <DialogHeader className="px-6 pt-6">
-              <div className="flex items-center gap-2 mb-2">
-                 <Button variant="ghost" size="icon" onClick={() => setStep(1)} className="h-8 w-8 -ml-2">
-                    <ChevronLeft className="h-5 w-5" />
-                 </Button>
-                 <DialogTitle className="text-xl font-bold tracking-tight text-[#122932]">
-                   Group Details
-                 </DialogTitle>
-              </div>
-              <DialogDescription>
-                Set up your <strong>{selectedCategory.label}</strong> group.
-              </DialogDescription>
-            </DialogHeader>
-
-            <form ref={formRef} onSubmit={handleCreateGroup} className="flex-grow flex flex-col px-6 py-4">
-              <input type="hidden" name="groupType" value={selectedCategory.id} />
-              
-              <div className="space-y-6">
-                 {/* Selected Category Preview */}
-                 <div className={cn("flex items-center gap-4 p-4 rounded-xl border", selectedCategory.color)}>
-                    <div className="p-2 bg-white rounded-lg shadow-sm">
-                        <selectedCategory.icon className="h-6 w-6" />
-                    </div>
-                    <div>
-                        <p className="font-bold text-sm">{selectedCategory.label}</p>
-                        <p className="text-xs opacity-80">{selectedCategory.description}</p>
-                    </div>
-                 </div>
-
-                 <div className="grid gap-2">
-                    <Label htmlFor="groupName" className="font-semibold text-slate-700">Group Name</Label>
-                    <Input 
-                      id="groupName" 
-                      name="groupName" 
-                      placeholder={`e.g., My ${selectedCategory.label} Circle`} 
-                      autoFocus 
-                      className="h-12 text-lg" 
-                    />
-                </div>
-
-                <div className="grid gap-2">
-                    <Label htmlFor="whatsappLink" className="font-semibold text-slate-700">WhatsApp Invite Link (Optional)</Label>
-                    <Input 
-                      id="whatsappLink" 
-                      name="whatsappLink" 
-                      placeholder="https://chat.whatsapp.com/..." 
-                      className="h-12"
-                    />
-                </div>
-              </div>
-
-              <DialogFooter className="mt-8 pb-6">
-                <Button type="button" variant="outline" onClick={() => setStep(1)} className="font-medium">
-                  Change Category
-                </Button>
-                <Button type="submit" disabled={isLoading} className="bg-[#2C514C] hover:bg-[#25423e] font-bold min-w-[120px]">
-                    {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                    Create Group
-                </Button>
-              </DialogFooter>
-            </form>
-          </div>
-        )}
-      </DialogContent>
-    </Dialog>
+        </div>
+      )}
+    </div>
   );
 }
