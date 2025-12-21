@@ -1,226 +1,321 @@
-"use client";
+'use client';
 
-import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
-import { useAuth } from "@/components/auth-provider";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
-import { Loader2, ArrowLeft, Plus, RefreshCw } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { useToast } from '@/hooks/use-toast';
+import { 
+  Loader2, 
+  ShoppingCart, 
+  PiggyBank, 
+  ArrowLeftRight, 
+  Cake, 
+  TrendingUp, 
+  HeartHandshake, 
+  Car, 
+  Home, 
+  MoreHorizontal,
+  RefreshCw,
+  ArrowLeft
+} from 'lucide-react';
+import { Card, CardContent } from '@/components/ui/card';
+import { getFirebaseApp } from '@/lib/firebase/client';
+import { getFirestore, collection, doc, serverTimestamp, writeBatch } from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
+import { cn } from "@/lib/utils";
 
-// Firebase Imports
-import { getFirestore, doc, setDoc, serverTimestamp, getDoc } from "firebase/firestore";
-import { getFirebaseApp } from "@/lib/firebase/client";
-
-// Helper to generate random 6-char code
-const generateGroupCode = () => {
-  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-  let result = "";
-  for (let i = 0; i < 6; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
+// --- CATEGORY DEFINITIONS ---
+const CATEGORIES = [
+  { 
+    id: "grocery", 
+    label: "Grocery", 
+    description: "Pool funds together for bulk grocery purchases.", 
+    icon: ShoppingCart,
+    color: "bg-green-50 text-green-700 border-green-200"
+  },
+  { 
+    id: "savings", 
+    label: "Savings", 
+    description: "A general-purpose group for collective savings goals.", 
+    icon: PiggyBank,
+    color: "bg-emerald-50 text-emerald-700 border-emerald-200"
+  },
+  { 
+    id: "borrowing", 
+    label: "Borrowing", 
+    description: "A lending circle where members can borrow.", 
+    icon: ArrowLeftRight,
+    color: "bg-blue-50 text-blue-700 border-blue-200"
+  },
+  { 
+    id: "birthday", 
+    label: "Birthday Savings", 
+    description: "Save small amounts monthly for birthdays.", 
+    icon: Cake,
+    color: "bg-pink-50 text-pink-700 border-pink-200"
+  },
+  { 
+    id: "investment", 
+    label: "Investments", 
+    description: "Pool capital for joint investment opportunities.", 
+    icon: TrendingUp,
+    color: "bg-purple-50 text-purple-700 border-purple-200"
+  },
+  { 
+    id: "burial", 
+    label: "Burial Society", 
+    description: "Financial support during times of bereavement.", 
+    icon: HeartHandshake,
+    color: "bg-slate-50 text-slate-700 border-slate-200"
+  },
+  { 
+    id: "car", 
+    label: "Car Purchase", 
+    description: "Save specifically towards buying vehicles.", 
+    icon: Car,
+    color: "bg-orange-50 text-orange-700 border-orange-200"
+  },
+  { 
+    id: "housing", 
+    label: "Stand Purchase", 
+    description: "Long-term savings for buying residential stands.", 
+    icon: Home,
+    color: "bg-cyan-50 text-cyan-700 border-cyan-200"
+  },
+  { 
+    id: "other", 
+    label: "Other Purposes", 
+    description: "Create a custom group for any other goal.", 
+    icon: MoreHorizontal,
+    color: "bg-gray-50 text-gray-700 border-gray-200"
   }
-  return result;
-};
+];
+
+function generateInviteCode() {
+    return Math.random().toString(36).substring(2, 8).toUpperCase();
+}
 
 export default function CreateGroupPage() {
   const router = useRouter();
-  const { user } = useAuth();
   const { toast } = useToast();
   
-  const [loading, setLoading] = useState(false);
-  const [generatedId, setGeneratedId] = useState("");
-  
-  const [formData, setFormData] = useState({
-    name: "",
-    description: "",
-    monthlyContribution: "100", // Default $100
-  });
+  // State
+  const [step, setStep] = useState(1);
+  const [selectedCategory, setSelectedCategory] = useState<typeof CATEGORIES[0] | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [inviteCode, setInviteCode] = useState("");
 
-  // Generate a code on mount
   useEffect(() => {
-    setGeneratedId(generateGroupCode());
+    setInviteCode(generateInviteCode());
   }, []);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    setFormData(prev => ({ ...prev, [e.target.id]: e.target.value }));
-  };
+  const refreshCode = () => setInviteCode(generateInviteCode());
 
-  const refreshCode = () => {
-    setGeneratedId(generateGroupCode());
-  };
+  const handleCreateGroup = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setIsLoading(true);
 
-  const handleCreate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!user) return;
-    
-    if (!formData.name) {
-      toast({ variant: "destructive", title: "Missing fields", description: "Please enter a group name." });
+    const formData = new FormData(event.currentTarget);
+    const groupName = formData.get('groupName') as string;
+    const amountStr = formData.get('amount') as string;
+    const description = formData.get('description') as string;
+
+    if (!groupName || groupName.length < 3) {
+      toast({ title: 'Error', description: 'Group name is too short.', variant: 'destructive' });
+      setIsLoading(false);
       return;
     }
 
-    setLoading(true);
-    const db = getFirestore(getFirebaseApp());
-
     try {
-      // 1. Check collision (rare, but good practice)
-      const groupRef = doc(db, "groups", generatedId);
-      const docSnap = await getDoc(groupRef);
+      const app = getFirebaseApp();
+      const auth = getAuth(app);
+      const db = getFirestore(app);
+      const user = auth.currentUser;
+
+      if (!user) throw new Error('You must be logged in.');
+      if (!selectedCategory) throw new Error('No category selected.');
+
+      const batch = writeBatch(db);
+      const groupRef = doc(collection(db, 'groups'));
       
-      if (docSnap.exists()) {
-        // Just try one more time if collision happens
-        const newId = generateGroupCode();
-        setGeneratedId(newId);
-        toast({ title: "ID Collision", description: "Generated a new ID. Please try again." });
-        setLoading(false);
-        return;
-      }
-
-      const contributionAmount = parseFloat(formData.monthlyContribution) * 100; // Convert to cents
-
-      // 2. Create Group
-      await setDoc(groupRef, {
-        name: formData.name,
-        description: formData.description,
-        createdBy: user.uid,
-        createdAt: serverTimestamp(),
+      const groupData: any = {
+        name: groupName,
+        description: description || selectedCategory.description,
+        groupType: selectedCategory.id,
+        categoryLabel: selectedCategory.label,
+        monthlyAmount: amountStr ? parseFloat(amountStr) : 0,
         currentBalanceCents: 0,
-        monthlyContributionCents: contributionAmount,
-        currency: "USD",
-        status: "active",
-        membersCount: 1, 
-        payoutSchedule: [],
-        nextPayoutDate: null
-      });
-
-      // 3. Add Creator as Admin
-      const memberRef = doc(db, "groups", generatedId, "members", user.uid);
-      await setDoc(memberRef, {
-        userId: user.uid,
-        email: user.email,
-        displayName: user.displayName || "Admin",
-        photoURL: user.photoURL || null,
-        role: "admin",
-        joinedAt: serverTimestamp(),
-        contributionBalanceCents: 0,
-        status: "active"
-      });
-
-      toast({ title: "Success!", description: `Group ${generatedId} created successfully.` });
+        createdAt: serverTimestamp(),
+        ownerId: user.uid,
+        inviteCode: inviteCode,
+        memberIds: [user.uid],
+        status: 'active'
+      };
       
-      // 4. Redirect
-      router.push(`/group/${generatedId}`);
+      batch.set(groupRef, groupData);
+
+      const memberDocRef = doc(db, 'groups', groupRef.id, 'members', user.uid);
+      batch.set(memberDocRef, {
+        name: user.displayName || user.email?.split('@')[0],
+        avatarUrl: user.photoURL || `https://i.pravatar.cc/150?u=${user.uid}`,
+        balanceCents: 0,
+        contributionBalanceCents: 0,
+        role: 'admin',
+        joinedAt: serverTimestamp(),
+        subscriptionStatus: 'unpaid',
+      });
+      
+      await batch.commit();
+      
+      toast({ title: 'Success!', description: `Group '${groupName}' created!` });
+      router.push(`/group/${groupRef.id}`);
 
     } catch (error: any) {
-      console.error(error);
-      toast({ variant: "destructive", title: "Error", description: "Failed to create group." });
+      console.error("Error creating group:", error);
+      toast({ title: 'Error', description: 'Failed to create group.', variant: 'destructive' });
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
   };
 
+  const handleCategorySelect = (cat: typeof CATEGORIES[0]) => {
+    setSelectedCategory(cat);
+    setStep(2);
+  };
+
   return (
-    <div className="max-w-2xl mx-auto py-10 px-4">
-      <Button 
-        variant="ghost" 
-        className="mb-4 pl-0 hover:bg-transparent hover:text-[#2C514C] text-slate-500" 
-        onClick={() => router.back()}
-      >
-        <ArrowLeft className="mr-2 h-4 w-4" /> Back to Dashboard
-      </Button>
+    <div className="min-h-screen bg-slate-50 p-4 md:p-8 font-sans">
+      
+      {/* HEADER: Back Button */}
+      <div className="max-w-4xl mx-auto mb-6">
+        <Button 
+            variant="ghost" 
+            onClick={() => step === 2 ? setStep(1) : router.back()} 
+            className="text-slate-500 hover:text-slate-800 pl-0"
+        >
+            <ArrowLeft className="mr-2 h-4 w-4" /> 
+            {step === 2 ? "Back to Categories" : "Back to Dashboard"}
+        </Button>
+      </div>
 
-      {/* --- COLORED CARD (Mukando Green) --- */}
-      <Card className="bg-[#2C514C] border-none text-white shadow-xl">
-        <CardHeader>
-          <CardTitle className="text-2xl font-bold">Create New Group</CardTitle>
-          <CardDescription className="text-slate-200">
-            Start a new saving circle. You will be the Admin.
-          </CardDescription>
-        </CardHeader>
-        <form onSubmit={handleCreate}>
-          <CardContent className="space-y-6">
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Auto-Generated ID Field */}
-              <div className="space-y-2">
-                <Label htmlFor="id" className="text-slate-100">Group ID (Invite Code)</Label>
-                <div className="flex gap-2">
-                  <Input 
-                    id="id" 
-                    value={generatedId} 
-                    readOnly
-                    // White input, Green text for emphasis
-                    className="bg-white font-mono text-center tracking-widest font-bold text-[#2C514C] border-white/20"
-                  />
-                  {/* Refresh button styled for dark background */}
-                  <Button 
-                    type="button" 
-                    variant="outline" 
-                    size="icon" 
-                    onClick={refreshCode} 
-                    title="Generate new code"
-                    className="bg-white/10 border-white/20 text-white hover:bg-white/20 hover:text-white"
-                  >
-                    <RefreshCw className="h-4 w-4" />
-                  </Button>
+      {/* --- STEP 1: CATEGORY SELECTION --- */}
+      {step === 1 && (
+        <div className="max-w-5xl mx-auto">
+          <div className="text-center mb-10 space-y-2">
+             <h1 className="text-3xl font-bold text-[#122932]">Create New Group</h1>
+             <p className="text-slate-500">First, select the type of group you want to create.</p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 pb-20">
+            {CATEGORIES.map((cat) => (
+              <Card
+                key={cat.id}
+                className={cn(
+                  "cursor-pointer transition-all hover:scale-[1.02] hover:shadow-lg border-2 border-transparent hover:border-green-100",
+                  "bg-white"
+                )}
+                onClick={() => handleCategorySelect(cat)}
+              >
+                <CardContent className="p-6 flex flex-col items-start gap-4">
+                  <div className={cn("p-3 rounded-xl", cat.color.split(' ')[0])}> 
+                    <cat.icon className={cn("h-6 w-6", cat.color.split(' ')[1])} />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-lg mb-2 text-slate-800">{cat.label}</h3>
+                    <p className="text-sm text-slate-500 leading-relaxed">
+                      {cat.description}
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* --- STEP 2: GREEN FORM --- */}
+      {step === 2 && selectedCategory && (
+        <div className="max-w-2xl mx-auto">
+            <div className="bg-[#2C514C] text-white rounded-2xl shadow-xl overflow-hidden">
+                
+                {/* Header */}
+                <div className="p-8 border-b border-white/10">
+                    <h2 className="text-2xl font-bold mb-1">Create New Group</h2>
+                    <p className="text-green-100/80">Start a new saving circle. You will be the Admin.</p>
+                    
+                    <div className="mt-4 inline-flex items-center gap-2 bg-white/10 px-3 py-1.5 rounded-lg border border-white/20">
+                        <selectedCategory.icon className="h-4 w-4 text-green-300" />
+                        <span className="text-sm font-medium text-green-50">{selectedCategory.label}</span>
+                    </div>
                 </div>
-                <p className="text-xs text-slate-300">This code is auto-generated for you.</p>
-              </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="monthlyContribution" className="text-slate-100">Monthly Amount ($)</Label>
-                <Input 
-                  id="monthlyContribution" 
-                  type="number" 
-                  placeholder="100" 
-                  value={formData.monthlyContribution} 
-                  onChange={handleChange}
-                  className="bg-white text-slate-900 border-white/20"
-                  required
-                />
-              </div>
+                {/* Form */}
+                <div className="p-8 pt-6">
+                    <form onSubmit={handleCreateGroup} className="space-y-6">
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div className="space-y-2">
+                                <Label htmlFor="inviteCode" className="text-green-100 font-medium">Group ID (Invite Code)</Label>
+                                <div className="flex gap-2">
+                                    <div className="flex-1 bg-white rounded-md h-10 flex items-center justify-center font-mono font-bold text-slate-800 tracking-widest shadow-sm">
+                                        {inviteCode}
+                                    </div>
+                                    <Button type="button" size="icon" variant="secondary" onClick={refreshCode} className="shrink-0 bg-white/20 hover:bg-white/30 text-white border-0">
+                                        <RefreshCw className="h-4 w-4" />
+                                    </Button>
+                                </div>
+                                <p className="text-xs text-green-200/60">This code is auto-generated.</p>
+                            </div>
+
+                            <div className="space-y-2">
+                                <Label htmlFor="amount" className="text-green-100 font-medium">Monthly Amount ($)</Label>
+                                <Input 
+                                    id="amount" 
+                                    name="amount" 
+                                    type="number" 
+                                    placeholder="100" 
+                                    className="bg-white text-slate-900 border-0 focus-visible:ring-2 focus-visible:ring-green-400"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="space-y-2">
+                            <Label htmlFor="groupName" className="text-green-100 font-medium">Group Name</Label>
+                            <Input 
+                                id="groupName" 
+                                name="groupName" 
+                                placeholder="e.g. Johnson Family Savings" 
+                                className="bg-white text-slate-900 border-0 focus-visible:ring-2 focus-visible:ring-green-400 h-12 text-lg"
+                                autoFocus
+                            />
+                        </div>
+
+                        <div className="space-y-2">
+                            <Label htmlFor="description" className="text-green-100 font-medium">Description (Optional)</Label>
+                            <Textarea 
+                                id="description" 
+                                name="description" 
+                                placeholder="What is this group for?" 
+                                className="bg-white text-slate-900 border-0 focus-visible:ring-2 focus-visible:ring-green-400 min-h-[100px]"
+                            />
+                        </div>
+
+                        <Button 
+                            type="submit" 
+                            disabled={isLoading}
+                            className="w-full bg-white text-[#2C514C] hover:bg-green-50 font-bold h-12 text-lg shadow-lg mt-4"
+                        >
+                            {isLoading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : "+ Create Group"}
+                        </Button>
+
+                    </form>
+                </div>
             </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="name" className="text-slate-100">Group Name</Label>
-              <Input 
-                id="name" 
-                placeholder="e.g. Johnson Family Savings" 
-                value={formData.name} 
-                onChange={handleChange}
-                className="bg-white text-slate-900 border-white/20"
-                required
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="description" className="text-slate-100">Description (Optional)</Label>
-              <Textarea 
-                id="description" 
-                placeholder="What is this group for?" 
-                value={formData.description} 
-                onChange={handleChange}
-                className="bg-white text-slate-900 border-white/20"
-                rows={3}
-              />
-            </div>
-
-          </CardContent>
-          <CardFooter className="p-6 border-t border-white/10">
-            {/* White Button with Green Text */}
-            <Button 
-              type="submit" 
-              className="w-full bg-white text-[#2C514C] hover:bg-slate-100 font-bold h-12 text-lg shadow-sm" 
-              disabled={loading}
-            >
-              {loading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Plus className="mr-2 h-5 w-5" />}
-              Create Group
-            </Button>
-          </CardFooter>
-        </form>
-      </Card>
+        </div>
+      )}
     </div>
   );
 }
