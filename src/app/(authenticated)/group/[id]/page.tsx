@@ -24,12 +24,16 @@ import { PayFeeDialog } from "./pay-fee-dialog";
 
 import type { Group, Member } from "@/lib/types";
 
+// --- ⚠️ CONFIGURATION: SUPER ADMIN WHATSAPP NUMBER ---
+// Format: CountryCode + Number (No + sign). e.g., 263771234567
+const SUPER_ADMIN_PHONE = "263784567174"; 
+
 // --- FIXED INTERFACE ---
 interface ExtendedMember extends Member {
   subscriptionStatus?: string;
   subscriptionEndsAt?: string;
   contributionBalanceCents?: number; 
-  lastPaymentRef?: string; // <--- Added this to fix the error!
+  lastPaymentRef?: string; 
 }
 
 function GroupContent() {
@@ -141,9 +145,11 @@ function GroupContent() {
     }
   }
 
+  // --- FIXED: CONTACT ADMIN FOR APPROVAL ---
   const contactAdminForApproval = () => {
-      const message = `Hi Admin, checking on my approval for group ${group?.name}. My payment ref was ${currentMember?.lastPaymentRef || 'sent recently'}.`;
-      const url = `https://wa.me/?text=${encodeURIComponent(message)}`;
+      const message = `Hi Admin, checking on my Platform Fee approval for group ${group?.name}. My payment ref was ${currentMember?.lastPaymentRef || 'sent recently'}.`;
+      // Use the specific Super Admin number
+      const url = `https://wa.me/${SUPER_ADMIN_PHONE}?text=${encodeURIComponent(message)}`;
       window.open(url, '_blank');
   }
 
