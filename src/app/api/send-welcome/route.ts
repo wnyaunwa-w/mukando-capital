@@ -1,31 +1,42 @@
 import { NextResponse } from 'next/server';
 import { Resend } from 'resend';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
-
 export async function POST(request: Request) {
-  try {
-    const { email, name } = await request.json();
+  // 1. Log that the request started
+  console.log("📨 API: Welcome email triggered...");
 
+  // 2. Check for API Key
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    console.error("❌ API ERROR: Missing RESEND_API_KEY in environment variables.");
+    return NextResponse.json({ error: 'Missing API Key' }, { status: 500 });
+  }
+
+  const resend = new Resend(apiKey);
+
+  try {
+    const body = await request.json();
+    const { email, name } = body;
+    console.log(`👤 Attempting to send to: ${email}`);
+
+    // 3. Attempt Send
     const data = await resend.emails.send({
-      // ✅ UPDATED: Uses your verified domain
-      from: 'Mukando Capital <hello@mukandocapital.com>', 
+      from: 'Mukando Capital <hello@mukandocapital.com>', // ⚠️ MUST MATCH YOUR VERIFIED DOMAIN
       to: [email], 
       subject: 'Welcome to Mukando Capital!',
-      html: `
-        <div style="font-family: sans-serif; color: #122932; padding: 20px;">
-          <h1 style="color: #2C514C;">Welcome, ${name}!</h1>
-          <p>Thank you for joining Mukando Capital.</p>
-          <p>You can now create groups, track savings, and manage contributions.</p>
-          <br />
-          <a href="https://mukandocapital.com/dashboard" style="background-color: #2C514C; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">Go to Dashboard</a>
-        </div>
-      `,
+      html: `<h1>Welcome ${name}</h1><p>This is a test email.</p>`,
     });
 
+    if (data.error) {
+      console.error("❌ RESEND ERROR:", data.error);
+      return NextResponse.json({ error: data.error }, { status: 400 });
+    }
+
+    console.log("✅ API: Email sent successfully!", data);
     return NextResponse.json(data);
+
   } catch (error) {
-    console.error("Email Error:", error);
-    return NextResponse.json({ error: 'Failed to send email' }, { status: 500 });
+    console.error("❌ CRITICAL SERVER ERROR:", error);
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }
