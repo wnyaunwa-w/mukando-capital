@@ -4,7 +4,14 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Mail, Lock, User, ArrowRight, AlertCircle, Loader2 } from 'lucide-react';
-import { getAuth, createUserWithEmailAndPassword, updateProfile, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
+import { 
+  getAuth, 
+  createUserWithEmailAndPassword, 
+  updateProfile, 
+  GoogleAuthProvider, 
+  signInWithPopup,
+  getAdditionalUserInfo 
+} from 'firebase/auth';
 import { getFirebaseApp, checkAndCreateUserDocument } from '@/lib/firebase/client'; 
 
 export default function SignupPage() {
@@ -37,7 +44,17 @@ export default function SignupPage() {
       // 3. Create the user document in Firestore (Database)
       await checkAndCreateUserDocument(userCredential.user);
 
-      // 4. REDIRECT TO DASHBOARD
+      // 4. ✅ SEND WELCOME EMAIL (Non-blocking)
+      fetch('/api/send-welcome', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: userCredential.user.email,
+          name: name 
+        }),
+      }).catch(err => console.error("Email failed:", err)); // We catch error so it doesn't stop redirect
+
+      // 5. REDIRECT TO DASHBOARD
       router.push('/dashboard'); 
     } catch (err: any) {
       console.error(err);
@@ -62,6 +79,19 @@ export default function SignupPage() {
       
       // Ensure user exists in database
       await checkAndCreateUserDocument(result.user);
+
+      // ✅ CHECK IF NEW USER -> SEND EMAIL
+      const details = getAdditionalUserInfo(result);
+      if (details?.isNewUser) {
+        fetch('/api/send-welcome', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: result.user.email,
+            name: result.user.displayName || 'Member'
+          }),
+        }).catch(err => console.error("Email failed:", err));
+      }
       
       // REDIRECT TO DASHBOARD
       router.push('/dashboard'); 
