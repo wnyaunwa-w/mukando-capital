@@ -21,13 +21,14 @@ import {
   query, 
   getDocs, 
   getDoc, 
+  doc, // ✅ Added doc
   where,
   collectionGroup
 } from "firebase/firestore";
 import { getFirebaseApp } from "@/lib/firebase/client";
 import Link from "next/link";
-// --- NEW IMPORT ---
 import { ProfileAlert } from "@/components/profile-alert"; 
+import { CreditScoreBadge } from "@/components/credit-score-badge"; // ✅ Added Badge Import
 
 // --- THE COLOR PALETTE ---
 const CARD_COLORS = [
@@ -57,13 +58,25 @@ export default function DashboardPage() {
   // Stats State
   const [totalSavings, setTotalSavings] = useState(0);
   const [nextPayoutDate, setNextPayoutDate] = useState<string>("--/--");
+  
+  // ✅ NEW: User Profile State for Credit Score
+  const [userProfile, setUserProfile] = useState<{ creditScore?: number } | null>(null);
 
   useEffect(() => {
-    async function fetchGroups() {
+    async function fetchData() {
       if (!user) return;
       const db = getFirestore(getFirebaseApp());
       
       try {
+          // 1. Fetch User Profile (For Credit Score)
+          const userRef = doc(db, "users", user.uid);
+          getDoc(userRef).then((snap) => {
+            if (snap.exists()) {
+                setUserProfile(snap.data() as { creditScore?: number });
+            }
+          });
+
+          // 2. Fetch Groups
           const myMembershipsQuery = query(
             collectionGroup(db, 'members'),
             where('userId', '==', user.uid)
@@ -87,7 +100,6 @@ export default function DashboardPage() {
                             slot.userId === user.uid && 
                             slot.status === 'pending'
                         );
-                        // Add found dates to our list
                         mySlots.forEach((slot: any) => myUpcomingPayouts.push(slot.payoutDate));
                      }
 
@@ -117,14 +129,10 @@ export default function DashboardPage() {
           const total = validGroups.reduce((sum, g) => sum + (g.myContribution || 0), 0);
           setTotalSavings(total);
 
-          // Calculate Next Payout Date (Earliest one)
+          // Calculate Next Payout Date
           if (myUpcomingPayouts.length > 0) {
-              // Sort dates ascending (Oldest to Newest)
               myUpcomingPayouts.sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
-              
-              // Take the first one and format it nicely
               const dateObj = new Date(myUpcomingPayouts[0]);
-              // Format as DD/MM/YYYY
               const formatted = dateObj.toLocaleDateString('en-GB', { 
                   day: '2-digit', 
                   month: '2-digit', 
@@ -142,7 +150,7 @@ export default function DashboardPage() {
       }
     }
 
-    fetchGroups();
+    fetchData();
   }, [user]);
 
   if (loading) return (
@@ -155,15 +163,24 @@ export default function DashboardPage() {
   return (
     <div className="space-y-8 pb-10">
       
-      {/* --- NEW ALERT COMPONENT ADDED HERE --- */}
+      {/* ALERT COMPONENT */}
       <ProfileAlert />
 
       {/* 1. WELCOME & ACTIONS */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
         <div>
-           <h1 className="text-3xl font-bold text-[#122932]">
-             Welcome back, {user?.displayName?.split(" ")[0] || "Saver"}! 👋
-           </h1>
+           <div className="flex items-center gap-3">
+               <h1 className="text-3xl font-bold text-[#122932]">
+                 Welcome back, {user?.displayName?.split(" ")[0] || "Saver"}! 👋
+               </h1>
+               
+               {/* ✅ CREDIT SCORE BADGE */}
+               {userProfile?.creditScore && (
+                    <div className="animate-in fade-in zoom-in duration-500">
+                        <CreditScoreBadge score={userProfile.creditScore} />
+                    </div>
+                )}
+           </div>
            <p className="text-slate-500 mt-1">Here is your financial overview.</p>
         </div>
         
@@ -206,7 +223,7 @@ export default function DashboardPage() {
           <h3 className="text-3xl font-bold text-blue-900 mt-1">{groups.length}</h3>
         </div>
 
-        {/* Next Payout - DYNAMICALLY UPDATED */}
+        {/* Next Payout */}
         <div className="bg-purple-50 p-6 rounded-2xl shadow-sm border border-purple-100">
           <div className="flex justify-between items-start mb-4">
             <div className="p-2 bg-white rounded-lg shadow-sm">
