@@ -7,7 +7,7 @@ import { useRouter, useParams } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { 
   Loader2, 
   Copy, 
@@ -15,7 +15,8 @@ import {
   ArrowLeft, 
   MessageCircle, 
   Clock,
-  // New Icons for Categories
+  CheckCircle2, // New Icon
+  // Category Icons
   ShoppingCart, 
   PiggyBank, 
   ArrowLeftRight, 
@@ -29,7 +30,17 @@ import {
 import { formatCurrency } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { getFirebaseApp } from "@/lib/firebase/client";
-import { getFirestore, doc, onSnapshot, getDoc } from "firebase/firestore";
+import { 
+  getFirestore, 
+  doc, 
+  onSnapshot, 
+  getDoc, 
+  collection, 
+  query, 
+  where, 
+  writeBatch, 
+  increment 
+} from "firebase/firestore";
 import { cn } from "@/lib/utils";
 
 // Component Imports
@@ -39,6 +50,7 @@ import { MembersList } from "./members-list";
 import { PayoutScheduleTab } from "./payout-schedule-tab";
 import { ClaimPaymentDialog } from "./claim-payment-dialog";
 import { PayFeeDialog } from "./pay-fee-dialog";
+import { PayoutDialog } from "./payout-dialog"; // Import the new dialog
 
 import type { Group, Member } from "@/lib/types";
 
@@ -78,8 +90,13 @@ function GroupContent() {
   const [platformFee, setPlatformFee] = useState(100); 
   const [nextPayoutProfile, setNextPayoutProfile] = useState<{ photoURL: string | null, displayName: string } | null>(null);
 
+  // Dialog States
   const [isClaimOpen, setIsClaimOpen] = useState(false);
   const [isPayFeeOpen, setIsPayFeeOpen] = useState(false);
+  const [isPayoutOpen, setIsPayoutOpen] = useState(false); // New state for payout dialog
+
+  // Pending Payout State (For Members receiving money)
+  const [pendingPayout, setPendingPayout] = useState<any | null>(null);
 
   useEffect(() => {
     if (!id || !user) return;
@@ -121,12 +138,29 @@ function GroupContent() {
       if (docSnap.exists()) setCurrentMember({ userId: docSnap.id, ...docSnap.data() } as ExtendedMember);
     });
 
-    // 3. Listen to Global Settings
+    // 3. Listen for Pending Payouts (Checks if ADMIN paid THIS USER)
+    const payoutQuery = query(
+        collection(db, "groups", id, "transactions"),
+        where("userId", "==", user.uid),
+        where("type", "==", "payout"),
+        where("status", "==", "pending_confirmation")
+    );
+
+    const unsubPayouts = onSnapshot(payoutQuery, (snapshot) => {
+        if (!snapshot.empty) {
+            const payoutDoc = snapshot.docs[0];
+            setPendingPayout({ id: payoutDoc.id, ...payoutDoc.data() });
+        } else {
+            setPendingPayout(null);
+        }
+    });
+
+    // 4. Listen to Global Settings
     const unsubSettings = onSnapshot(doc(db, "settings", "global"), (docSnap) => {
         if (docSnap.exists() && docSnap.data().platformFeeCents) setPlatformFee(docSnap.data().platformFeeCents);
     });
 
-    return () => { unsubGroup(); unsubMember(); unsubSettings(); };
+    return () => { unsubGroup(); unsubMember(); unsubPayouts(); unsubSettings(); };
   }, [id, user]);
 
   const checkSubscription = () => {
@@ -151,6 +185,30 @@ function GroupContent() {
   const isPending = subState.status === 'pending';
   const isLocked = subState.status === 'inactive' || subState.status === 'expired' || isPending;
   const isAdmin = currentMember?.role === 'admin';
+
+  // --- CONFIRM RECEIPT LOGIC ---
+  const confirmReceipt = async () => {
+    if (!pendingPayout || !group) return;
+    try {
+        const db = getFirestore(getFirebaseApp());
+        const batch = writeBatch(db);
+
+        // A. Update Transaction to completed
+        const txRef = doc(db, "groups", group.id, "transactions", pendingPayout.id);
+        batch.update(txRef, { status: "completed" });
+
+        // B. Update Group Balance (Payouts DECREASE the group balance)
+        const groupRef = doc(db, "groups", group.id);
+        batch.update(groupRef, { currentBalanceCents: increment(-pendingPayout.amountCents) });
+
+        await batch.commit();
+        toast({ title: "Success", description: "Payment receipt confirmed." });
+
+    } catch (e) {
+        console.error(e);
+        toast({ title: "Error", description: "Could not confirm payment.", variant: "destructive" });
+    }
+  };
 
   // --- GET CATEGORY STYLING ---
   const getCategoryStyle = () => {
@@ -205,7 +263,7 @@ function GroupContent() {
 
         <div className="w-full break-words flex flex-col md:flex-row justify-between items-start gap-4">
             <div className="flex-1">
-                {/* NEW: CATEGORY BADGE */}
+                {/* CATEGORY BADGE */}
                 {categoryStyle && (
                     <div className={cn("inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold mb-3", categoryStyle.color, categoryStyle.textColor)}>
                         <categoryStyle.icon className="w-3.5 h-3.5" />
@@ -237,6 +295,31 @@ function GroupContent() {
             </Button>
         </div>
       </div>
+
+      {/* --- PENDING PAYOUT ALERT (Appears only if member has money waiting) --- */}
+      {pendingPayout && (
+          <Card className="bg-green-50 border-green-200 shadow-sm animate-in fade-in slide-in-from-top-2">
+            <CardHeader className="pb-2">
+                <div className="flex items-center gap-2 text-green-800">
+                    <CheckCircle2 className="h-5 w-5" />
+                    <CardTitle className="text-lg">Payment Incoming!</CardTitle>
+                </div>
+                <CardDescription className="text-green-700">
+                    The Admin has marked a payout of <strong>{formatCurrency(pendingPayout.amountCents)}</strong> to you.
+                </CardDescription>
+            </CardHeader>
+            <CardContent>
+                <div className="flex flex-col sm:flex-row gap-3">
+                    <Button onClick={confirmReceipt} className="bg-green-700 hover:bg-green-800 text-white font-bold w-full sm:w-auto">
+                        Confirm Receipt
+                    </Button>
+                    <Button variant="ghost" className="text-green-700 hover:text-green-900 hover:bg-green-100 w-full sm:w-auto">
+                        Report Issue
+                    </Button>
+                </div>
+            </CardContent>
+          </Card>
+      )}
 
       {/* STATS CARDS */}
       <div className={`grid grid-cols-1 md:grid-cols-3 gap-4 ${isLocked ? 'opacity-50 pointer-events-none blur-sm' : ''}`}>
@@ -274,8 +357,9 @@ function GroupContent() {
         </Card>
       </div>
 
-      {/* ACTION BUTTONS */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {/* ACTION BUTTONS (Updated with Payout Button) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {/* 1. Inflow: Member pays Group */}
         <Button 
             className="bg-[#2C514C] hover:bg-[#1b3330] text-white h-12 w-full font-bold shadow-sm" 
             onClick={() => setIsClaimOpen(true)} 
@@ -283,12 +367,24 @@ function GroupContent() {
         >
             Claim Manual Payment
         </Button>
+
+        {/* 2. Platform Fee */}
         <Button 
             className="bg-[#576066] hover:bg-[#464e54] text-white h-12 w-full font-bold shadow-sm" 
             onClick={() => setIsPayFeeOpen(true)}
             disabled={isPending} 
         >
             {isPending ? "Payment Under Review" : `Pay Platform Fee (${formatCurrency(platformFee)})`}
+        </Button>
+
+        {/* 3. Outflow: Group pays Member (ADMIN ONLY) */}
+        <Button 
+            className="bg-[#122932] hover:bg-[#0d1f26] text-white h-12 w-full font-bold shadow-sm disabled:opacity-40 disabled:cursor-not-allowed" 
+            onClick={() => setIsPayoutOpen(true)}
+            disabled={!isAdmin} 
+            title={!isAdmin ? "Only Admins can initiate payouts" : "Send money to a member"}
+        >
+            Payout Member
         </Button>
       </div>
 
@@ -373,6 +469,7 @@ function GroupContent() {
 
       <ClaimPaymentDialog isOpen={isClaimOpen} onOpenChange={setIsClaimOpen} groupId={group.id} isSubscriptionLocked={isLocked} />
       <PayFeeDialog isOpen={isPayFeeOpen} onOpenChange={setIsPayFeeOpen} groupId={group.id} />
+      <PayoutDialog isOpen={isPayoutOpen} onOpenChange={setIsPayoutOpen} groupId={group.id} />
     </div>
   );
 }
