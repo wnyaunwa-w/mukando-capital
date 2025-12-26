@@ -4,7 +4,7 @@ import { ShieldCheck, ShieldAlert, Shield, Trophy } from "lucide-react";
 export function CreditScoreBadge({ score }: { score: number }) {
   // Determine Tier
   let tier = "Unrated";
-  let color = "bg-slate-100 text-slate-600";
+  let color = "bg-slate-100 text-slate-600 border-slate-200";
   let Icon = Shield;
 
   if (score >= 800) {
@@ -19,6 +19,10 @@ export function CreditScoreBadge({ score }: { score: number }) {
     tier = "Silver";
     color = "bg-slate-100 text-slate-700 border-slate-200";
     Icon = Shield;
+  } else if (score >= 500) {
+    tier = "Bronze";
+    color = "bg-orange-50 text-orange-700 border-orange-200";
+    Icon = Shield;
   } else {
     tier = "Risk";
     color = "bg-red-100 text-red-700 border-red-200";
@@ -26,10 +30,9 @@ export function CreditScoreBadge({ score }: { score: number }) {
   }
 
   return (
-    <div className={cn("flex items-center gap-1.5 px-2 py-0.5 rounded-md border text-xs font-bold", color)}>
-      <Icon className="w-3 h-3" />
-      <span>{score}</span>
-      <span className="hidden sm:inline">({tier})</span>
+    <div className={cn("inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-bold uppercase tracking-wider", color)}>
+      <Icon className="w-3.5 h-3.5" />
+      <span>{score} • {tier}</span>
     </div>
   );
 }

@@ -15,8 +15,7 @@ import {
   ArrowLeft, 
   MessageCircle, 
   Clock,
-  CheckCircle2, // New Icon
-  // Category Icons
+  CheckCircle2, 
   ShoppingCart, 
   PiggyBank, 
   ArrowLeftRight, 
@@ -50,14 +49,14 @@ import { MembersList } from "./members-list";
 import { PayoutScheduleTab } from "./payout-schedule-tab";
 import { ClaimPaymentDialog } from "./claim-payment-dialog";
 import { PayFeeDialog } from "./pay-fee-dialog";
-import { PayoutDialog } from "./payout-dialog"; // Import the new dialog
+import { PayoutDialog } from "./payout-dialog"; 
+import { CreditScoreBadge } from "@/components/credit-score-badge"; 
 
 import type { Group, Member } from "@/lib/types";
 
-// --- ⚠️ CONFIGURATION: SUPER ADMIN WHATSAPP NUMBER ---
+// --- CONFIGURATION ---
 const SUPER_ADMIN_PHONE = "263784567174"; 
 
-// --- CATEGORY CONFIGURATION ---
 const CATEGORY_CONFIG: Record<string, { label: string; icon: any; color: string; textColor: string }> = {
   grocery: { label: "Grocery", icon: ShoppingCart, color: "bg-green-100", textColor: "text-green-700" },
   savings: { label: "Savings", icon: PiggyBank, color: "bg-emerald-100", textColor: "text-emerald-700" },
@@ -89,26 +88,28 @@ function GroupContent() {
   const [currentMember, setCurrentMember] = useState<ExtendedMember | null>(null);
   const [platformFee, setPlatformFee] = useState(100); 
   const [nextPayoutProfile, setNextPayoutProfile] = useState<{ photoURL: string | null, displayName: string } | null>(null);
+  
+  const [userProfile, setUserProfile] = useState<{ creditScore?: number } | null>(null);
 
   // Dialog States
   const [isClaimOpen, setIsClaimOpen] = useState(false);
   const [isPayFeeOpen, setIsPayFeeOpen] = useState(false);
-  const [isPayoutOpen, setIsPayoutOpen] = useState(false); // New state for payout dialog
+  const [isPayoutOpen, setIsPayoutOpen] = useState(false);
 
-  // Pending Payout State (For Members receiving money)
+  // Pending Payout State
   const [pendingPayout, setPendingPayout] = useState<any | null>(null);
 
   useEffect(() => {
     if (!id || !user) return;
     const db = getFirestore(getFirebaseApp());
     
-    // 1. Listen to Group Data
+    // 1. Group Data
     const unsubGroup = onSnapshot(doc(db, "groups", id), async (docSnap) => {
       if (docSnap.exists()) {
         const gData = { id: docSnap.id, ...docSnap.data() } as Group;
         setGroup(gData);
 
-        // Calculate Next Payout Person
+        // Next Payout Person Logic
         const schedule = (gData as any).payoutSchedule || [];
         const today = new Date().toISOString().split('T')[0];
         const nextPerson = schedule
@@ -133,12 +134,19 @@ function GroupContent() {
       }
     });
 
-    // 2. Listen to Member Data
+    // 2. Member Data (Group Specific)
     const unsubMember = onSnapshot(doc(db, "groups", id, "members", user.uid), (docSnap) => {
       if (docSnap.exists()) setCurrentMember({ userId: docSnap.id, ...docSnap.data() } as ExtendedMember);
     });
 
-    // 3. Listen for Pending Payouts (Checks if ADMIN paid THIS USER)
+    // 3. Global User Data (For Credit Score)
+    const unsubUserGlobal = onSnapshot(doc(db, "users", user.uid), (docSnap) => {
+      if (docSnap.exists()) {
+        setUserProfile(docSnap.data() as { creditScore?: number });
+      }
+    });
+
+    // 4. Pending Payouts
     const payoutQuery = query(
         collection(db, "groups", id, "transactions"),
         where("userId", "==", user.uid),
@@ -155,26 +163,23 @@ function GroupContent() {
         }
     });
 
-    // 4. Listen to Global Settings
+    // 5. Global Settings
     const unsubSettings = onSnapshot(doc(db, "settings", "global"), (docSnap) => {
         if (docSnap.exists() && docSnap.data().platformFeeCents) setPlatformFee(docSnap.data().platformFeeCents);
     });
 
-    return () => { unsubGroup(); unsubMember(); unsubPayouts(); unsubSettings(); };
+    return () => { unsubGroup(); unsubMember(); unsubPayouts(); unsubSettings(); unsubUserGlobal(); };
   }, [id, user]);
 
   const checkSubscription = () => {
     if (!currentMember) return { status: 'loading' };
     if (currentMember.subscriptionStatus === 'pending_approval') return { status: 'pending' };
-    
     const isActive = currentMember.subscriptionStatus === 'active';
     if (!isActive) return { status: 'inactive' };
-
     if (currentMember.subscriptionEndsAt) {
         const expiryDate = new Date(currentMember.subscriptionEndsAt);
         const today = new Date();
-        const diffTime = expiryDate.getTime() - today.getTime();
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        const diffDays = Math.ceil((expiryDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
         if (diffDays <= 0) return { status: 'expired' };
         if (diffDays <= 3) return { status: 'expiring', days: diffDays };
     }
@@ -186,59 +191,53 @@ function GroupContent() {
   const isLocked = subState.status === 'inactive' || subState.status === 'expired' || isPending;
   const isAdmin = currentMember?.role === 'admin';
 
-  // --- CONFIRM RECEIPT LOGIC ---
   const confirmReceipt = async () => {
-    if (!pendingPayout || !group) return;
+    // ✅ FIX: Added check for 'user' to prevent null error
+    if (!pendingPayout || !group || !user) return;
     try {
         const db = getFirestore(getFirebaseApp());
         const batch = writeBatch(db);
-
-        // A. Update Transaction to completed
         const txRef = doc(db, "groups", group.id, "transactions", pendingPayout.id);
         batch.update(txRef, { status: "completed" });
-
-        // B. Update Group Balance (Payouts DECREASE the group balance)
         const groupRef = doc(db, "groups", group.id);
         batch.update(groupRef, { currentBalanceCents: increment(-pendingPayout.amountCents) });
+        
+        // Bonus points
+        const userRef = doc(db, "users", user.uid);
+        batch.update(userRef, { creditScore: increment(5) });
 
         await batch.commit();
-        toast({ title: "Success", description: "Payment receipt confirmed." });
-
+        toast({ title: "Success", description: "Payment receipt confirmed. (+5 Trust Points)" });
     } catch (e) {
         console.error(e);
         toast({ title: "Error", description: "Could not confirm payment.", variant: "destructive" });
     }
   };
 
-  // --- GET CATEGORY STYLING ---
   const getCategoryStyle = () => {
     if (!group) return null;
     const type = (group as any).groupType || 'other';
     return CATEGORY_CONFIG[type] || CATEGORY_CONFIG['other'];
   };
-
   const categoryStyle = getCategoryStyle();
 
-  // --- WHATSAPP SHARE ---
   const shareToWhatsApp = () => {
     if (!group) return;
     const inviteCode = group.id.substring(0,6).toUpperCase();
     const text = `Join my savings circle "${group.name}" on Mukando Capital!\n\nUse Invite Code: *${inviteCode}*\n\nOr click here to join: https://www.mukandocapital.com/join-group`;
-    const url = `https://wa.me/?text=${encodeURIComponent(text)}`;
-    window.open(url, '_blank');
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
   };
 
   const copyCode = () => {
     if (group?.id) { 
         navigator.clipboard.writeText(group.id.substring(0,6).toUpperCase()); 
-        toast({ title: "Copied!", description: "Invite code copied to clipboard." }); 
+        toast({ title: "Copied!", description: "Invite code copied." }); 
     }
   }
 
   const contactAdminForApproval = () => {
       const message = `Hi Admin, checking on my Platform Fee approval for group ${group?.name}. My payment ref was ${currentMember?.lastPaymentRef || 'sent recently'}.`;
-      const url = `https://wa.me/${SUPER_ADMIN_PHONE}?text=${encodeURIComponent(message)}`;
-      window.open(url, '_blank');
+      window.open(`https://wa.me/${SUPER_ADMIN_PHONE}?text=${encodeURIComponent(message)}`, '_blank');
   }
 
   if (!group) return <div className="p-10 flex justify-center"><Loader2 className="animate-spin text-[#2C514C]" /></div>;
@@ -246,57 +245,42 @@ function GroupContent() {
   return (
     <div className="w-full space-y-6 pb-20 font-sans text-slate-800">
       
-      {/* HEADER AREA */}
+      {/* HEADER */}
       <div className="flex flex-col gap-4 w-full">
         <div className="flex justify-between items-center">
             <Button variant="ghost" className="pl-0 text-slate-500 hover:bg-transparent hover:text-slate-900" onClick={() => router.push("/dashboard")}>
                 <ArrowLeft className="mr-2 h-4 w-4" /> Back to Dashboard
             </Button>
-            
-            <Button 
-                onClick={shareToWhatsApp}
-                className="hidden md:flex bg-[#25D366] hover:bg-[#128C7E] text-white gap-2 font-semibold shadow-sm"
-            >
+            <Button onClick={shareToWhatsApp} className="hidden md:flex bg-[#25D366] hover:bg-[#128C7E] text-white gap-2 font-semibold shadow-sm">
                 <MessageCircle className="w-4 h-4" /> Invite Members
             </Button>
         </div>
 
         <div className="w-full break-words flex flex-col md:flex-row justify-between items-start gap-4">
             <div className="flex-1">
-                {/* CATEGORY BADGE */}
                 {categoryStyle && (
                     <div className={cn("inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold mb-3", categoryStyle.color, categoryStyle.textColor)}>
                         <categoryStyle.icon className="w-3.5 h-3.5" />
                         <span>{categoryStyle.label}</span>
                     </div>
                 )}
-
                 <h1 className="text-3xl md:text-4xl font-bold text-[#122932] leading-tight">{group.name}</h1>
                 <p className="text-gray-500 mt-1 text-sm md:text-base">{group.description}</p>
-                
                 <div className="flex items-center gap-3 mt-3">
                     <div className="flex items-center gap-2 bg-slate-100 border border-slate-200 px-3 py-1 rounded-md">
                         <span className="text-xs font-bold text-slate-500 uppercase">Code:</span>
-                        <span className="font-mono font-bold text-[#2C514C] tracking-wider text-sm">
-                            {group.id.substring(0,6).toUpperCase()}
-                        </span>
+                        <span className="font-mono font-bold text-[#2C514C] tracking-wider text-sm">{group.id.substring(0,6).toUpperCase()}</span>
                     </div>
-                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-slate-400 hover:text-[#2C514C]" onClick={copyCode}>
-                        <Copy className="h-4 w-4" />
-                    </Button>
+                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-slate-400 hover:text-[#2C514C]" onClick={copyCode}><Copy className="h-4 w-4" /></Button>
                 </div>
             </div>
-
-            <Button 
-                onClick={shareToWhatsApp}
-                className="md:hidden w-full bg-[#25D366] hover:bg-[#128C7E] text-white gap-2 font-bold h-12 shadow-sm"
-            >
+            <Button onClick={shareToWhatsApp} className="md:hidden w-full bg-[#25D366] hover:bg-[#128C7E] text-white gap-2 font-bold h-12 shadow-sm">
                 <MessageCircle className="w-5 h-5" /> Invite Members
             </Button>
         </div>
       </div>
 
-      {/* --- PENDING PAYOUT ALERT (Appears only if member has money waiting) --- */}
+      {/* PENDING PAYOUT ALERT */}
       {pendingPayout && (
           <Card className="bg-green-50 border-green-200 shadow-sm animate-in fade-in slide-in-from-top-2">
             <CardHeader className="pb-2">
@@ -310,12 +294,8 @@ function GroupContent() {
             </CardHeader>
             <CardContent>
                 <div className="flex flex-col sm:flex-row gap-3">
-                    <Button onClick={confirmReceipt} className="bg-green-700 hover:bg-green-800 text-white font-bold w-full sm:w-auto">
-                        Confirm Receipt
-                    </Button>
-                    <Button variant="ghost" className="text-green-700 hover:text-green-900 hover:bg-green-100 w-full sm:w-auto">
-                        Report Issue
-                    </Button>
+                    <Button onClick={confirmReceipt} className="bg-green-700 hover:bg-green-800 text-white font-bold w-full sm:w-auto">Confirm Receipt</Button>
+                    <Button variant="ghost" className="text-green-700 hover:text-green-900 hover:bg-green-100 w-full sm:w-auto">Report Issue</Button>
                 </div>
             </CardContent>
           </Card>
@@ -323,14 +303,25 @@ function GroupContent() {
 
       {/* STATS CARDS */}
       <div className={`grid grid-cols-1 md:grid-cols-3 gap-4 ${isLocked ? 'opacity-50 pointer-events-none blur-sm' : ''}`}>
+        
+        {/* CARD 1: TOTAL BALANCE */}
         <Card className="bg-[#2C514C] text-white border-none shadow-lg w-full">
             <CardHeader className="py-4"><CardTitle className="text-slate-200 text-sm uppercase">Total Balance</CardTitle></CardHeader>
             <CardContent className="pb-4 pt-0"><div className="text-3xl font-bold text-white truncate">{formatCurrency(group.currentBalanceCents || 0)}</div></CardContent>
         </Card>
+
+        {/* CARD 2: MY CONTRIBUTION & SCORE */}
         <Card className="bg-[#576066] text-white border-none shadow-lg w-full">
-            <CardHeader className="py-4"><CardTitle className="text-slate-200 text-sm uppercase">My Contribution</CardTitle></CardHeader>
-            <CardContent className="pb-4 pt-0"><div className="text-3xl font-bold text-white truncate">{formatCurrency(currentMember?.contributionBalanceCents || 0)}</div></CardContent>
+            <CardHeader className="py-4 flex flex-row items-center justify-between">
+                <CardTitle className="text-slate-200 text-sm uppercase">My Contribution</CardTitle>
+                {userProfile?.creditScore && <CreditScoreBadge score={userProfile.creditScore} />}
+            </CardHeader>
+            <CardContent className="pb-4 pt-0">
+                <div className="text-3xl font-bold text-white truncate">{formatCurrency(currentMember?.contributionBalanceCents || 0)}</div>
+            </CardContent>
         </Card>
+
+        {/* CARD 3: NEXT PAYOUT */}
         <Card className="bg-[#122932] text-white border-none shadow-lg w-full">
             <CardHeader className="py-4"><CardTitle className="text-slate-200 text-sm uppercase">Next Payout</CardTitle></CardHeader>
             <CardContent className="pb-4 pt-0">
@@ -357,70 +348,27 @@ function GroupContent() {
         </Card>
       </div>
 
-      {/* ACTION BUTTONS (Updated with Payout Button) */}
+      {/* ACTION BUTTONS */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {/* 1. Inflow: Member pays Group */}
-        <Button 
-            className="bg-[#2C514C] hover:bg-[#1b3330] text-white h-12 w-full font-bold shadow-sm" 
-            onClick={() => setIsClaimOpen(true)} 
-            disabled={isLocked}
-        >
-            Claim Manual Payment
-        </Button>
-
-        {/* 2. Platform Fee */}
-        <Button 
-            className="bg-[#576066] hover:bg-[#464e54] text-white h-12 w-full font-bold shadow-sm" 
-            onClick={() => setIsPayFeeOpen(true)}
-            disabled={isPending} 
-        >
-            {isPending ? "Payment Under Review" : `Pay Platform Fee (${formatCurrency(platformFee)})`}
-        </Button>
-
-        {/* 3. Outflow: Group pays Member (ADMIN ONLY) */}
-        <Button 
-            className="bg-[#122932] hover:bg-[#0d1f26] text-white h-12 w-full font-bold shadow-sm disabled:opacity-40 disabled:cursor-not-allowed" 
-            onClick={() => setIsPayoutOpen(true)}
-            disabled={!isAdmin} 
-            title={!isAdmin ? "Only Admins can initiate payouts" : "Send money to a member"}
-        >
-            Payout Member
-        </Button>
+        <Button className="bg-[#2C514C] hover:bg-[#1b3330] text-white h-12 w-full font-bold shadow-sm" onClick={() => setIsClaimOpen(true)} disabled={isLocked}>Claim Manual Payment</Button>
+        <Button className="bg-[#576066] hover:bg-[#464e54] text-white h-12 w-full font-bold shadow-sm" onClick={() => setIsPayFeeOpen(true)} disabled={isPending}>{isPending ? "Payment Under Review" : `Pay Platform Fee (${formatCurrency(platformFee)})`}</Button>
+        <Button className="bg-[#122932] hover:bg-[#0d1f26] text-white h-12 w-full font-bold shadow-sm disabled:opacity-40 disabled:cursor-not-allowed" onClick={() => setIsPayoutOpen(true)} disabled={!isAdmin} title={!isAdmin ? "Only Admins can initiate payouts" : "Send money to a member"}>Payout Member</Button>
       </div>
 
-      {/* TABS & CONTENT */}
+      {/* TABS */}
       {isPending ? (
           <div className="text-center py-20 bg-amber-50 border-2 border-dashed border-amber-200 rounded-xl flex flex-col items-center justify-center gap-3">
-            <div className="bg-amber-100 p-4 rounded-full animate-pulse">
-                <Clock className="h-12 w-12 text-amber-600" />
-            </div>
+            <div className="bg-amber-100 p-4 rounded-full animate-pulse"><Clock className="h-12 w-12 text-amber-600" /></div>
             <h3 className="text-lg font-bold text-amber-900">Payment Under Review</h3>
-            <p className="text-amber-700 max-w-sm mx-auto">
-                We have received your payment proof. An admin will review and activate your access shortly.
-            </p>
-            <Button 
-                onClick={contactAdminForApproval}
-                variant="outline"
-                className="mt-2 border-amber-300 text-amber-800 hover:bg-amber-100"
-            >
-                <MessageCircle className="w-4 h-4 mr-2" /> Follow up via WhatsApp
-            </Button>
+            <p className="text-amber-700 max-w-sm mx-auto">We have received your payment proof. An admin will review and activate your access shortly.</p>
+            <Button onClick={contactAdminForApproval} variant="outline" className="mt-2 border-amber-300 text-amber-800 hover:bg-amber-100"><MessageCircle className="w-4 h-4 mr-2" /> Follow up via WhatsApp</Button>
         </div>
       ) : isLocked ? (
           <div className="text-center py-20 bg-slate-50 border-2 border-dashed border-slate-200 rounded-xl flex flex-col items-center justify-center gap-3">
-              <div className="bg-slate-100 p-4 rounded-full">
-                  <Lock className="h-12 w-12 text-slate-400" />
-              </div>
+              <div className="bg-slate-100 p-4 rounded-full"><Lock className="h-12 w-12 text-slate-400" /></div>
               <h3 className="text-lg font-bold text-slate-900">Access Restricted</h3>
-              <p className="text-slate-500 max-w-sm mx-auto">
-                  Activate your group privileges by paying Platform Fee.
-              </p>
-              <Button 
-                  onClick={() => setIsPayFeeOpen(true)}
-                  className="mt-2 bg-[#2C514C] hover:bg-[#25423e] text-white"
-              >
-                  Pay Now ({formatCurrency(platformFee)})
-              </Button>
+              <p className="text-slate-500 max-w-sm mx-auto">Activate your group privileges by paying Platform Fee.</p>
+              <Button onClick={() => setIsPayFeeOpen(true)} className="mt-2 bg-[#2C514C] hover:bg-[#25423e] text-white">Pay Now ({formatCurrency(platformFee)})</Button>
           </div>
       ) : (
         <Tabs defaultValue="ledger" className="w-full mt-4">
@@ -433,37 +381,10 @@ function GroupContent() {
                 </TabsList>
             </div>
             
-            <TabsContent value="ledger" className="mt-4 w-full">
-                <div className="w-full overflow-x-auto border rounded-lg bg-white shadow-sm">
-                    <div className="min-w-[600px] md:min-w-full"> 
-                        <TransactionLedger groupId={group.id} />
-                    </div>
-                </div>
-            </TabsContent>
-
-            <TabsContent value="members" className="mt-4 w-full">
-                <div className="w-full overflow-x-auto bg-white rounded-lg shadow-sm">
-                    <MembersList groupId={group.id} />
-                </div>
-            </TabsContent>
-
-            {isAdmin && (
-                <TabsContent value="schedule" className="mt-4 w-full">
-                    <div className="w-full overflow-x-auto border rounded-lg bg-white shadow-sm">
-                        <div className="min-w-[600px] md:min-w-full">
-                            <PayoutScheduleTab groupId={group.id} />
-                        </div>
-                    </div>
-                </TabsContent>
-            )}
-
-            {isAdmin && (
-                <TabsContent value="admin" className="mt-4 w-full">
-                    <div className="w-full overflow-x-auto bg-white rounded-lg shadow-sm">
-                        <AdminForms groupId={group.id} />
-                    </div>
-                </TabsContent>
-            )}
+            <TabsContent value="ledger" className="mt-4 w-full"><div className="w-full overflow-x-auto border rounded-lg bg-white shadow-sm"><div className="min-w-[600px] md:min-w-full"><TransactionLedger groupId={group.id} /></div></div></TabsContent>
+            <TabsContent value="members" className="mt-4 w-full"><div className="w-full overflow-x-auto bg-white rounded-lg shadow-sm"><MembersList groupId={group.id} /></div></TabsContent>
+            {isAdmin && <TabsContent value="schedule" className="mt-4 w-full"><div className="w-full overflow-x-auto border rounded-lg bg-white shadow-sm"><div className="min-w-[600px] md:min-w-full"><PayoutScheduleTab groupId={group.id} /></div></div></TabsContent>}
+            {isAdmin && <TabsContent value="admin" className="mt-4 w-full"><div className="w-full overflow-x-auto bg-white rounded-lg shadow-sm"><AdminForms groupId={group.id} /></div></TabsContent>}
         </Tabs>
       )}
 
