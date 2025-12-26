@@ -1,62 +1,79 @@
-'use client';
+import { initializeApp, getApps, getApp, FirebaseApp } from "firebase/app";
+import { getAuth, Auth } from "firebase/auth";
+import { 
+  getFirestore, 
+  doc, 
+  getDoc, 
+  setDoc, 
+  serverTimestamp, 
+  Firestore 
+} from "firebase/firestore";
+import type { User } from "firebase/auth";
 
-import { initializeApp, getApp, getApps, FirebaseOptions } from 'firebase/app';
-import { getFirestore, doc, updateDoc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
-import type { User as FirebaseUser } from 'firebase/auth';
-
-const firebaseConfig: FirebaseOptions = {
-    apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || process.env.FIREBASE_API_KEY,
-    authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || process.env.FIREBASE_AUTH_DOMAIN,
-    projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || process.env.FIREBASE_PROJECT_ID,
-    storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || process.env.FIREBASE_STORAGE_BUCKET,
-    messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || process.env.FIREBASE_MESSAGING_SENDER_ID,
-    appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || process.env.FIREBASE_APP_ID,
+// --- Configuration ---
+const firebaseConfig = {
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
 
-// Singleton pattern to initialize Firebase app on the client
-export function getFirebaseApp() {
-    if (!getApps().length) {
-        return initializeApp(firebaseConfig);
-    }
-    return getApp();
+// --- Singleton Instances ---
+let app: FirebaseApp | undefined;
+let auth: Auth | undefined;
+let db: Firestore | undefined;
+
+export function getFirebaseApp(): FirebaseApp {
+  if (!app) {
+    app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+  }
+  return app;
 }
 
-export async function updateFirestoreUser(userId: string, data: Record<string, any>) {
-    const app = getFirebaseApp();
-    const db = getFirestore(app);
-    const userDocRef = doc(db, 'users', userId);
-    await updateDoc(userDocRef, data);
+export function getFirebaseAuth(): Auth {
+  if (!auth) {
+    auth = getAuth(getFirebaseApp());
+  }
+  return auth;
 }
 
+export function getFirebaseDb(): Firestore {
+  if (!db) {
+    db = getFirestore(getFirebaseApp());
+  }
+  return db;
+}
 
 /**
- * Checks if a user document exists in Firestore. If not, it creates one.
- * This is essential for new users signing up for the first time, regardless of method.
- * @param user The Firebase Auth user object.
+ * Checks if a user document exists in Firestore.
+ * If not, creates one with default data (including Credit Score).
  */
-export async function checkAndCreateUserDocument(user: FirebaseUser) {
-    const app = getFirebaseApp();
-    const db = getFirestore(app);
-    const userDocRef = doc(db, 'users', user.uid);
+export async function checkAndCreateUserDocument(user: User) {
+  const db = getFirebaseDb();
+  const userRef = doc(db, "users", user.uid);
+  
+  try {
+    const userSnap = await getDoc(userRef);
 
-    const userDocSnap = await getDoc(userDocRef);
-
-    if (!userDocSnap.exists()) {
-        // User document doesn't exist, create it.
-        try {
-            await setDoc(userDocRef, {
-                email: user.email,
-                name: user.displayName || user.email?.split('@')[0] || 'New User',
-                avatarUrl: user.photoURL || `https://i.pravatar.cc/150?u=${user.uid}`,
-                createdAt: serverTimestamp(),
-                phoneNumber: user.phoneNumber || '',
-                role: 'member', // Default role for all new users
-                groups: [],
-            });
-            console.log(`Created new user document for ${user.uid}`);
-        } catch (error) {
-            console.error("Error creating user document:", error);
-            // Handle the error appropriately, maybe show a toast to the user.
-        }
+    if (!userSnap.exists()) {
+      // Create new user profile
+      await setDoc(userRef, {
+        uid: user.uid,
+        email: user.email,
+        displayName: user.displayName || 'Member',
+        photoURL: user.photoURL || null,
+        createdAt: serverTimestamp(),
+        role: 'user', // Default role
+        
+        // --- NEW: Credit Scoring Logic ---
+        creditScore: 400, // Starts at 400 (Neutral)
+        reputationTier: 'Neutral' 
+      });
+      console.log("✅ Created new user profile for:", user.email);
     }
+  } catch (error) {
+    console.error("❌ Error creating user document:", error);
+  }
 }
