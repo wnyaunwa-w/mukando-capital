@@ -24,7 +24,8 @@ import {
   HeartHandshake, 
   Car, 
   Home, 
-  MoreHorizontal
+  MoreHorizontal,
+  CalendarClock // ✅ New Icon
 } from "lucide-react"; 
 import { formatCurrency } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
@@ -89,6 +90,7 @@ function GroupContent() {
   const [platformFee, setPlatformFee] = useState(100); 
   const [nextPayoutProfile, setNextPayoutProfile] = useState<{ photoURL: string | null, displayName: string } | null>(null);
   
+  // User Global Profile (for Credit Score)
   const [userProfile, setUserProfile] = useState<{ creditScore?: number } | null>(null);
 
   // Dialog States
@@ -98,6 +100,9 @@ function GroupContent() {
 
   // Pending Payout State
   const [pendingPayout, setPendingPayout] = useState<any | null>(null);
+
+  // Next Due Date Display
+  const [nextDueDateDisplay, setNextDueDateDisplay] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id || !user) return;
@@ -109,11 +114,34 @@ function GroupContent() {
         const gData = { id: docSnap.id, ...docSnap.data() } as Group;
         setGroup(gData);
 
+        // --- CALCULATE NEXT PAYMENT DUE DATE ---
+        if ((gData as any).paymentDueDay) {
+            const dueDay = (gData as any).paymentDueDay;
+            const today = new Date();
+            const currentDay = today.getDate();
+            const currentMonth = today.getMonth();
+            const currentYear = today.getFullYear();
+
+            let targetDate = new Date(currentYear, currentMonth, dueDay);
+            
+            // If we already passed this month's deadline, move to next month
+            if (currentDay > dueDay) {
+                targetDate = new Date(currentYear, currentMonth + 1, dueDay);
+            }
+
+            const formattedDate = targetDate.toLocaleDateString('en-GB', { 
+                day: 'numeric', month: 'short', year: 'numeric' 
+            });
+            setNextDueDateDisplay(formattedDate);
+        } else {
+            setNextDueDateDisplay(null);
+        }
+
         // Next Payout Person Logic
         const schedule = (gData as any).payoutSchedule || [];
-        const today = new Date().toISOString().split('T')[0];
+        const todayStr = new Date().toISOString().split('T')[0];
         const nextPerson = schedule
-            .filter((m: any) => m.payoutDate >= today && m.status === 'pending')
+            .filter((m: any) => m.payoutDate >= todayStr && m.status === 'pending')
             .sort((a: any, b: any) => a.payoutDate.localeCompare(b.payoutDate))[0];
         
         if (nextPerson) {
@@ -142,7 +170,11 @@ function GroupContent() {
     // 3. Global User Data (For Credit Score)
     const unsubUserGlobal = onSnapshot(doc(db, "users", user.uid), (docSnap) => {
       if (docSnap.exists()) {
-        setUserProfile(docSnap.data() as { creditScore?: number });
+        const data = docSnap.data();
+        // Default to 400 if undefined
+        setUserProfile({ creditScore: data.creditScore !== undefined ? data.creditScore : 400 });
+      } else {
+        setUserProfile({ creditScore: 400 });
       }
     });
 
@@ -192,7 +224,6 @@ function GroupContent() {
   const isAdmin = currentMember?.role === 'admin';
 
   const confirmReceipt = async () => {
-    // ✅ FIX: Added check for 'user' to prevent null error
     if (!pendingPayout || !group || !user) return;
     try {
         const db = getFirestore(getFirebaseApp());
@@ -310,14 +341,22 @@ function GroupContent() {
             <CardContent className="pb-4 pt-0"><div className="text-3xl font-bold text-white truncate">{formatCurrency(group.currentBalanceCents || 0)}</div></CardContent>
         </Card>
 
-        {/* CARD 2: MY CONTRIBUTION & SCORE */}
+        {/* CARD 2: MY CONTRIBUTION & SCORE (UPDATED) */}
         <Card className="bg-[#576066] text-white border-none shadow-lg w-full">
             <CardHeader className="py-4 flex flex-row items-center justify-between">
                 <CardTitle className="text-slate-200 text-sm uppercase">My Contribution</CardTitle>
-                {userProfile?.creditScore && <CreditScoreBadge score={userProfile.creditScore} />}
+                {userProfile?.creditScore !== undefined && <CreditScoreBadge score={userProfile.creditScore} />}
             </CardHeader>
             <CardContent className="pb-4 pt-0">
                 <div className="text-3xl font-bold text-white truncate">{formatCurrency(currentMember?.contributionBalanceCents || 0)}</div>
+                
+                {/* ✅ NEXT DUE DATE DISPLAY */}
+                {nextDueDateDisplay && (
+                    <div className="mt-2 flex items-center gap-1.5 text-xs text-slate-300 font-medium bg-white/10 px-2 py-1 rounded w-fit">
+                        <CalendarClock className="w-3.5 h-3.5" />
+                        <span>Next Due: {nextDueDateDisplay}</span>
+                    </div>
+                )}
             </CardContent>
         </Card>
 
