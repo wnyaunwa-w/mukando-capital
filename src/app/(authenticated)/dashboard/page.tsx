@@ -21,14 +21,14 @@ import {
   query, 
   getDocs, 
   getDoc, 
-  doc, // ✅ Added doc
+  doc, 
   where,
   collectionGroup
 } from "firebase/firestore";
 import { getFirebaseApp } from "@/lib/firebase/client";
 import Link from "next/link";
 import { ProfileAlert } from "@/components/profile-alert"; 
-import { CreditScoreBadge } from "@/components/credit-score-badge"; // ✅ Added Badge Import
+import { CreditScoreBadge } from "@/components/credit-score-badge"; 
 
 // --- THE COLOR PALETTE ---
 const CARD_COLORS = [
@@ -59,8 +59,8 @@ export default function DashboardPage() {
   const [totalSavings, setTotalSavings] = useState(0);
   const [nextPayoutDate, setNextPayoutDate] = useState<string>("--/--");
   
-  // ✅ NEW: User Profile State for Credit Score
-  const [userProfile, setUserProfile] = useState<{ creditScore?: number } | null>(null);
+  // ✅ FIX: Initialize with default score 400 so it always shows
+  const [creditScore, setCreditScore] = useState<number>(400);
 
   useEffect(() => {
     async function fetchData() {
@@ -72,7 +72,11 @@ export default function DashboardPage() {
           const userRef = doc(db, "users", user.uid);
           getDoc(userRef).then((snap) => {
             if (snap.exists()) {
-                setUserProfile(snap.data() as { creditScore?: number });
+                const data = snap.data();
+                // ✅ LOGIC FIX: If score is missing, default to 400
+                setCreditScore(data.creditScore !== undefined ? data.creditScore : 400);
+            } else {
+                setCreditScore(400); // Default for new users
             }
           });
 
@@ -174,12 +178,10 @@ export default function DashboardPage() {
                  Welcome back, {user?.displayName?.split(" ")[0] || "Saver"}! 👋
                </h1>
                
-               {/* ✅ CREDIT SCORE BADGE */}
-               {userProfile?.creditScore && (
-                    <div className="animate-in fade-in zoom-in duration-500">
-                        <CreditScoreBadge score={userProfile.creditScore} />
-                    </div>
-                )}
+               {/* ✅ CREDIT SCORE BADGE (Now always visible) */}
+               <div className="animate-in fade-in zoom-in duration-500">
+                   <CreditScoreBadge score={creditScore} />
+               </div>
            </div>
            <p className="text-slate-500 mt-1">Here is your financial overview.</p>
         </div>
