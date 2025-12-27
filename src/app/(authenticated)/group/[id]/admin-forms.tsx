@@ -23,7 +23,7 @@ import { addDays, addMonths, format } from "date-fns";
 import { 
   getFirestore, doc, updateDoc, collection, getDocs, getDoc, setDoc,
   addDoc, serverTimestamp, query, where, increment, onSnapshot 
-} from "firebase/firestore"; // Removed runTransaction to prevent crashes
+} from "firebase/firestore";
 import { getFirebaseApp } from "@/lib/firebase/client";
 import { formatCurrency } from "@/lib/utils";
 
@@ -115,7 +115,7 @@ export function AdminForms({ groupId }: { groupId: string }) {
     try { await updateDoc(doc(db, "groups", groupId), { paymentDueDay: parseInt(dueDay) }); toast({ title: "Saved" }); } catch (e) { toast({ title: "Error", variant: "destructive" }); }
   };
 
-  // --- ROBUST APPROVAL LOGIC (NO ATOMIC TRANSACTION) ---
+  // --- ROBUST APPROVAL LOGIC (FIXED STARTING SCORE) ---
   const approveTransaction = async (tx: PendingTransaction) => {
     setLoading(true);
     try {
@@ -132,7 +132,7 @@ export function AdminForms({ groupId }: { groupId: string }) {
 
       const safeAmount = Number(tx.amountCents) || 0;
 
-      // STEP 1: Update Transaction Status (Critical)
+      // STEP 1: Update Transaction Status
       await updateDoc(doc(db, 'groups', groupId, 'transactions', tx.id), {
           status: 'completed',
           approvedAt: serverTimestamp(),
@@ -143,17 +143,28 @@ export function AdminForms({ groupId }: { groupId: string }) {
       // STEP 2: Update Group Balance
       await updateDoc(doc(db, 'groups', groupId), { currentBalanceCents: increment(safeAmount) });
 
-      // STEP 3: Update Member Balance (Fail-safe)
+      // STEP 3: Update Member Balance
       try {
         await updateDoc(doc(db, 'groups', groupId, 'members', tx.userId), { contributionBalanceCents: increment(safeAmount) });
       } catch (err) { console.warn("Member doc missing, skipping balance update"); }
 
-      // STEP 4: Update Credit Score (Safe Mode)
-      // We use setDoc with merge:true so it creates the user profile if it doesn't exist!
+      // STEP 4: Update Credit Score (Manual Calculation)
       try {
-        await setDoc(doc(db, 'users', tx.userId), { 
-            creditScore: increment(pointsEarned) 
+        const userRef = doc(db, 'users', tx.userId);
+        const userSnap = await getDoc(userRef);
+        
+        // DEFAULT TO 400 IF MISSING
+        let currentScore = 400; 
+        if (userSnap.exists() && userSnap.data().creditScore !== undefined) {
+            currentScore = userSnap.data().creditScore;
+        }
+
+        const newScore = Math.min(1250, currentScore + pointsEarned);
+
+        await setDoc(userRef, { 
+            creditScore: newScore 
         }, { merge: true });
+
       } catch (scoreErr) {
         console.error("Score update failed:", scoreErr);
         scoreMessage = "Payment Approved (Score update skipped)";
@@ -174,9 +185,20 @@ export function AdminForms({ groupId }: { groupId: string }) {
     setLoading(true);
     try {
         await updateDoc(doc(db, 'groups', groupId, 'transactions', txId), { status: 'rejected' });
-        // Attempt penalty
-        try { await updateDoc(doc(db, 'users', userId), { creditScore: increment(-10) }); } catch(e) {}
-        toast({ title: "Rejected", description: "Transaction rejected." });
+        
+        // Manual Score Update for Rejection (-10)
+        try { 
+            const userRef = doc(db, 'users', userId);
+            const userSnap = await getDoc(userRef);
+            let currentScore = 400; // Default
+            if (userSnap.exists() && userSnap.data().creditScore !== undefined) {
+                currentScore = userSnap.data().creditScore;
+            }
+            const newScore = Math.max(0, currentScore - 10);
+            await setDoc(userRef, { creditScore: newScore }, { merge: true });
+        } catch(e) {}
+        
+        toast({ title: "Rejected", description: "Transaction rejected. (-10 pts)" });
     } catch (e) { console.error(e); } finally { setLoading(false); }
   };
 
@@ -199,8 +221,20 @@ export function AdminForms({ groupId }: { groupId: string }) {
         });
         await updateDoc(doc(db, 'groups', groupId), { currentBalanceCents: increment(amountCents) });
         try { await updateDoc(doc(db, 'groups', groupId, 'members', selectedMemberId), { contributionBalanceCents: increment(amountCents) }); } catch(e){}
-        try { await setDoc(doc(db, 'users', selectedMemberId), { creditScore: increment(5) }, { merge: true }); } catch(e){}
-        toast({ title: "Recorded", description: "Manual payment saved." });
+        
+        // Manual Score Update for Entry (+5)
+        try {
+            const userRef = doc(db, 'users', selectedMemberId);
+            const userSnap = await getDoc(userRef);
+            let currentScore = 400; // Default
+            if (userSnap.exists() && userSnap.data().creditScore !== undefined) {
+                currentScore = userSnap.data().creditScore;
+            }
+            const newScore = Math.min(1250, currentScore + 5);
+            await setDoc(userRef, { creditScore: newScore }, { merge: true });
+        } catch(e){}
+
+        toast({ title: "Recorded", description: "Manual payment saved (+5 pts)." });
         setAmount(''); setReference('');
     } catch (error) { console.error(error); } finally { setLoading(false); }
   };
