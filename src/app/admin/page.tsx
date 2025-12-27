@@ -6,8 +6,7 @@ import {
   Card, 
   CardContent, 
   CardHeader, 
-  CardTitle, 
-  CardDescription 
+  CardTitle 
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -23,14 +22,12 @@ import {
   Trash2,
   Ban,
   CheckCircle,
-  MoreHorizontal,
-  Phone
+  MoreHorizontal
 } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
@@ -49,6 +46,9 @@ import {
   serverTimestamp
 } from "firebase/firestore";
 import { getFirebaseApp } from "@/lib/firebase/client";
+
+// ✅ IMPORT THE SCOREBOARD COMPONENT
+import { GlobalScoreboard } from "@/components/admin/global-scoreboard";
 
 // --- TYPES ---
 interface FeeRequest {
@@ -369,6 +369,8 @@ export default function SuperAdminPage() {
                 </TabsTrigger>
                 <TabsTrigger value="groups">Groups</TabsTrigger>
                 <TabsTrigger value="users">Users</TabsTrigger>
+                {/* ✅ ADDED SCORES TAB TRIGGER */}
+                <TabsTrigger value="scores">Scores</TabsTrigger>
             </TabsList>
         </div>
 
@@ -377,7 +379,6 @@ export default function SuperAdminPage() {
             <Card>
                 <CardHeader className="px-4 py-4">
                     <CardTitle className="text-lg">Pending Approvals</CardTitle>
-                    <CardDescription>Verify Innbucks references.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3 px-4 pb-4">
                     {pendingRequests.length === 0 ? (
@@ -531,6 +532,12 @@ export default function SuperAdminPage() {
                 </CardContent>
             </Card>
         </TabsContent>
+
+        {/* 4. ✅ NEW SCORES TAB */}
+        <TabsContent value="scores">
+            <GlobalScoreboard />
+        </TabsContent>
+        
       </Tabs>
     </div>
   );
