@@ -203,13 +203,37 @@ export function AdminForms({ groupId }: { groupId: string }) {
     }
   };
 
-  const rejectTransaction = async (txId: string) => {
-    if(!confirm("Reject this transaction?")) return;
+  const rejectTransaction = async (txId: string, userId: string) => {
+    if(!confirm("Reject this transaction? The member will lose 10 Trust Points.")) return;
+    
+    setLoading(true);
     try {
-        await updateDoc(doc(db, 'groups', groupId, 'transactions', txId), { status: 'rejected' });
+        await runTransaction(db, async (transaction) => {
+            // 1. Get Refs
+            const txRef = doc(db, 'groups', groupId, 'transactions', txId);
+            const userRef = doc(db, 'users', userId);
+
+            // 2. Mark Transaction as Rejected
+            transaction.update(txRef, { status: 'rejected' });
+
+            // 3. PENALTY LOGIC (-10 Points)
+            const userSnap = await transaction.get(userRef);
+            if (userSnap.exists()) {
+                const currentScore = userSnap.data().creditScore || 400;
+                // Ensure score doesn't drop below 0
+                const newScore = Math.max(0, currentScore - 10); 
+                transaction.update(userRef, { creditScore: newScore });
+            }
+        });
+
         setPendingTx(prev => prev.filter(t => t.id !== txId));
-        toast({ title: "Rejected", description: "Transaction rejected." });
-    } catch (e) { console.error(e); }
+        toast({ title: "Rejected", description: "Transaction rejected. Member penalized -10 points." });
+    } catch (e) {
+        console.error(e);
+        toast({ title: "Error", description: "Could not reject transaction.", variant: "destructive" });
+    } finally {
+        setLoading(false);
+    }
   };
 
   const handleManualEntry = async (e: React.FormEvent) => {
@@ -329,7 +353,12 @@ export function AdminForms({ groupId }: { groupId: string }) {
                             <div className="text-lg font-bold text-[#2C514C] mt-1">{formatCurrency(tx.amountCents)}</div>
                         </div>
                         <div className="flex gap-2 w-full sm:w-auto">
-                            <Button size="sm" variant="outline" className="border-red-200 text-red-700 hover:bg-red-50 flex-1" onClick={() => rejectTransaction(tx.id)}>
+                            <Button 
+                                size="sm" 
+                                variant="outline" 
+                                className="border-red-200 text-red-700 hover:bg-red-50 flex-1"
+                                onClick={() => rejectTransaction(tx.id, tx.userId)}
+                            >
                                 <XCircle className="w-4 h-4 mr-1" /> Reject
                             </Button>
                             <Button size="sm" className="bg-[#2C514C] hover:bg-[#23413d] text-white flex-1" onClick={() => approveTransaction(tx)} disabled={loading}>
