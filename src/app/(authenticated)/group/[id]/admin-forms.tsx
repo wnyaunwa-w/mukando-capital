@@ -43,7 +43,7 @@ interface PendingTransaction {
   amountCents: number;
   description: string;
   date: string;
-  status?: string; // Added status to interface
+  status?: string;
 }
 
 interface ScheduledMember {
@@ -65,7 +65,7 @@ export function AdminForms({ groupId }: { groupId: string }) {
   const [pendingTx, setPendingTx] = useState<PendingTransaction[]>([]);
   
   // Settings State
-  const [dueDay, setDueDay] = useState<string>("31"); // Default: End of month
+  const [dueDay, setDueDay] = useState<string>("31"); 
 
   // Manual Entry State
   const [selectedMemberId, setSelectedMemberId] = useState('');
@@ -78,7 +78,7 @@ export function AdminForms({ groupId }: { groupId: string }) {
   const [startDate, setStartDate] = useState(format(new Date(), "yyyy-MM-dd"));
   const [frequency, setFrequency] = useState("monthly");
 
-  // --- 1. FETCH MEMBERS & SETTINGS (One-time) ---
+  // --- 1. FETCH MEMBERS & SETTINGS ---
   useEffect(() => {
     if (!groupId) return;
 
@@ -124,11 +124,10 @@ export function AdminForms({ groupId }: { groupId: string }) {
     fetchStaticData();
   }, [groupId, db]);
 
-  // --- 2. LISTEN FOR PENDING TRANSACTIONS (Real-time & Robust) ---
+  // --- 2. LISTEN FOR PENDING TRANSACTIONS ---
   useEffect(() => {
     if (!groupId) return;
 
-    // ✅ FIX: Look for BOTH 'pending' and 'pending_approval' to catch all
     const qTx = query(
         collection(db, 'groups', groupId, 'transactions'), 
         where('status', 'in', ['pending', 'pending_approval'])
@@ -139,7 +138,6 @@ export function AdminForms({ groupId }: { groupId: string }) {
             id: d.id, 
             ...d.data() 
         } as PendingTransaction));
-        console.log("Pending TXs found:", txs.length); // Debug log
         setPendingTx(txs);
     }, (error) => {
         console.error("Error listening to transactions:", error);
@@ -159,17 +157,20 @@ export function AdminForms({ groupId }: { groupId: string }) {
     }
   };
 
-  // --- APPROVAL LOGIC (SCORING V3) ---
+  // --- APPROVAL LOGIC (SAFE VERSION) ---
   const approveTransaction = async (tx: PendingTransaction) => {
     setLoading(true);
     try {
       let pointsEarned = 0;
       let scoreMessage = "";
 
-      // 1. Calculate Score based on Due Date
-      const paymentDate = new Date(tx.date);
+      // 1. Safe Date Parsing (Fixes "Paid:" empty error)
+      // If tx.date is missing, assume TODAY.
+      const txDateObj = tx.date ? new Date(tx.date) : new Date();
+      const paymentDate = isNaN(txDateObj.getTime()) ? new Date() : txDateObj;
+
       const paymentDay = paymentDate.getDate();
-      const deadline = parseInt(dueDay);
+      const deadline = parseInt(dueDay) || 31;
 
       // Scoring Logic:
       if (paymentDay <= deadline) {
@@ -191,24 +192,38 @@ export function AdminForms({ groupId }: { groupId: string }) {
         const userRef = doc(db, 'users', tx.userId);
         const memberRef = doc(db, 'groups', groupId, 'members', tx.userId);
         
-        // Updates
-        transaction.update(txRef, { status: 'completed', approvedAt: serverTimestamp(), pointsEarned });
-        transaction.update(groupRef, { currentBalanceCents: increment(tx.amountCents) });
-        transaction.update(memberRef, { contributionBalanceCents: increment(tx.amountCents) });
+        // Check if TX exists to avoid crash
+        const txDoc = await transaction.get(txRef);
+        if (!txDoc.exists()) throw "Transaction does not exist.";
 
-        // Credit Score Update
+        // Updates
+        transaction.update(txRef, { 
+            status: 'completed', 
+            approvedAt: serverTimestamp(), 
+            pointsEarned 
+        });
+        transaction.update(groupRef, { currentBalanceCents: increment(tx.amountCents) });
+        
+        // Check member existence before updating to prevent crash
+        const memberDoc = await transaction.get(memberRef);
+        if (memberDoc.exists()) {
+             transaction.update(memberRef, { contributionBalanceCents: increment(tx.amountCents) });
+        }
+
+        // Update Credit Score
         const userSnap = await transaction.get(userRef);
         if (userSnap.exists()) {
              const currentScore = userSnap.data().creditScore || 400; 
-             const newScore = Math.min(850, currentScore + pointsEarned); // Max score 850
+             // ✅ UPDATED CAP TO 1250
+             const newScore = Math.min(1250, currentScore + pointsEarned); 
              transaction.update(userRef, { creditScore: newScore });
         }
       });
 
       toast({ title: "Approved", description: `${scoreMessage}` });
     } catch (error) {
-      console.error(error);
-      toast({ title: "Error", description: "Failed to approve.", variant: "destructive" });
+      console.error("Approval Error:", error);
+      toast({ title: "Error", description: "Failed to approve transaction.", variant: "destructive" });
     } finally {
       setLoading(false);
     }
@@ -221,6 +236,11 @@ export function AdminForms({ groupId }: { groupId: string }) {
         await runTransaction(db, async (transaction) => {
             const txRef = doc(db, 'groups', groupId, 'transactions', txId);
             const userRef = doc(db, 'users', userId);
+            
+            // Validate TX existence
+            const txDoc = await transaction.get(txRef);
+            if (!txDoc.exists()) throw "Transaction missing";
+
             transaction.update(txRef, { status: 'rejected' });
 
             const userSnap = await transaction.get(userRef);
@@ -231,7 +251,12 @@ export function AdminForms({ groupId }: { groupId: string }) {
             }
         });
         toast({ title: "Rejected", description: "Transaction rejected. (-10 Points)" });
-    } catch (e) { console.error(e); } finally { setLoading(false); }
+    } catch (e) { 
+        console.error(e); 
+        toast({ title: "Error", description: "Failed to reject.", variant: "destructive" });
+    } finally { 
+        setLoading(false); 
+    }
   };
 
   // --- MANUAL ENTRY ---
@@ -248,14 +273,17 @@ export function AdminForms({ groupId }: { groupId: string }) {
             description: reference || 'Manual Entry',
             userId: selectedMemberId,
             userDisplayName: selectedMember?.name,
-            status: 'completed', // Auto-approved
+            status: 'completed',
             createdAt: serverTimestamp(),
+            // ✅ Ensure date is always set for manual entries
             date: new Date().toISOString().split('T')[0]
         });
+        
         const batch = (await import("firebase/firestore")).writeBatch(db);
         batch.update(doc(db, 'groups', groupId), { currentBalanceCents: increment(amountCents) });
-        batch.update(doc(db, 'groups', groupId, 'members', selectedMemberId), { contributionBalanceCents: increment(amountCents) });
         
+        // Safe updates for member/user
+        batch.update(doc(db, 'groups', groupId, 'members', selectedMemberId), { contributionBalanceCents: increment(amountCents) });
         batch.update(doc(db, 'users', selectedMemberId), { creditScore: increment(5) });
 
         await batch.commit();
@@ -345,7 +373,10 @@ export function AdminForms({ groupId }: { groupId: string }) {
                     <div key={tx.id} className="flex flex-col sm:flex-row items-start sm:items-center justify-between bg-white p-4 rounded-lg border shadow-sm gap-4">
                         <div>
                             <div className="font-bold text-slate-900">{tx.userDisplayName}</div>
-                            <div className="text-sm text-slate-500">{tx.description} • Paid: {tx.date}</div>
+                            {/* ✅ Updated to show fallback date if missing */}
+                            <div className="text-sm text-slate-500">
+                                {tx.description} • Paid: {tx.date || "Unknown Date (Defaulting to Today)"}
+                            </div>
                             <div className="text-lg font-bold text-[#2C514C] mt-1">{formatCurrency(tx.amountCents)}</div>
                         </div>
                         <div className="flex gap-2 w-full sm:w-auto">
