@@ -13,7 +13,8 @@ import {
   Search, 
   Plus, 
   TrendingUp, 
-  Calendar 
+  Calendar,
+  HelpCircle
 } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { 
@@ -28,7 +29,8 @@ import {
 import { getFirebaseApp } from "@/lib/firebase/client";
 import Link from "next/link";
 import { ProfileAlert } from "@/components/profile-alert"; 
-import { CreditScoreBadge } from "@/components/credit-score-badge"; 
+// ✅ IMPORT THE NEW GAUGE COMPONENT
+import { CreditScoreGauge } from "@/components/credit-score-gauge"; 
 
 // --- THE COLOR PALETTE ---
 const CARD_COLORS = [
@@ -59,7 +61,7 @@ export default function DashboardPage() {
   const [totalSavings, setTotalSavings] = useState(0);
   const [nextPayoutDate, setNextPayoutDate] = useState<string>("--/--");
   
-  // ✅ FIX: Initialize with default score 400 so it always shows
+  // Initialize with default score 400
   const [creditScore, setCreditScore] = useState<number>(400);
 
   useEffect(() => {
@@ -73,7 +75,7 @@ export default function DashboardPage() {
           getDoc(userRef).then((snap) => {
             if (snap.exists()) {
                 const data = snap.data();
-                // ✅ LOGIC FIX: If score is missing, default to 400
+                // If score is missing, default to 400
                 setCreditScore(data.creditScore !== undefined ? data.creditScore : 400);
             } else {
                 setCreditScore(400); // Default for new users
@@ -177,11 +179,7 @@ export default function DashboardPage() {
                <h1 className="text-3xl font-bold text-[#122932]">
                  Welcome back, {user?.displayName?.split(" ")[0] || "Saver"}! 👋
                </h1>
-               
-               {/* ✅ CREDIT SCORE BADGE (Now always visible) */}
-               <div className="animate-in fade-in zoom-in duration-500">
-                   <CreditScoreBadge score={creditScore} />
-               </div>
+               {/* ✅ REMOVED OLD BADGE FROM HERE */}
            </div>
            <p className="text-slate-500 mt-1">Here is your financial overview.</p>
         </div>
@@ -200,6 +198,40 @@ export default function DashboardPage() {
             </Link>
         </div>
       </div>
+
+      {/* ✅ NEW: Financial Health Section with Gauge */}
+      <Card className="border-none shadow-md bg-white">
+        <CardHeader>
+          <CardTitle className="text-xl font-bold text-[#122932] flex items-center gap-2">
+            <TrendingUp className="w-5 h-5 text-blue-600" /> Your Financial Health
+          </CardTitle>
+          <CardDescription>Your Mukando Score is a measure of your reliability and savings history.</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col md:flex-row items-center justify-around gap-8 pt-2 pb-6">
+            {/* The New Gauge Component */}
+            <div className="flex-shrink-0 animate-in fade-in zoom-in duration-700">
+                <CreditScoreGauge score={creditScore} />
+            </div>
+            
+            {/* Contextual Info */}
+            <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-4 w-full max-w-2xl">
+                <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 flex gap-3">
+                    <HelpCircle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                        <p className="text-sm font-bold text-blue-900">Why it matters</p>
+                        <p className="text-sm text-blue-700 leading-relaxed">A higher score builds trust, giving you access to more groups and potentially larger payout slots.</p>
+                    </div>
+                </div>
+                <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-100 flex gap-3">
+                    <TrendingUp className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                        <p className="text-sm font-bold text-emerald-900">How to improve</p>
+                        <p className="text-sm text-emerald-700 leading-relaxed">Make your contributions on time and promptly confirm when you receive a payout.</p>
+                    </div>
+                </div>
+            </div>
+        </CardContent>
+      </Card>
 
       {/* 2. STATS OVERVIEW CARDS */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
