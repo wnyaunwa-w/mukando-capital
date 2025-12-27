@@ -1,10 +1,10 @@
 import { cn } from "@/lib/utils";
-import { ShieldCheck, ShieldAlert, Shield, Trophy } from "lucide-react";
+import { ShieldCheck, Shield, Trophy, Medal } from "lucide-react"; // Changed ShieldAlert to Medal
 
 export function CreditScoreBadge({ score }: { score: number }) {
   // Determine Tier
-  let tier = "Unrated";
-  let color = "bg-slate-100 text-slate-600 border-slate-200";
+  let tier = "Mukando Score"; // Default Name
+  let color = "bg-slate-100 text-slate-700 border-slate-200"; // Default Neutral Color
   let Icon = Shield;
 
   if (score >= 800) {
@@ -22,11 +22,13 @@ export function CreditScoreBadge({ score }: { score: number }) {
   } else if (score >= 500) {
     tier = "Bronze";
     color = "bg-orange-50 text-orange-700 border-orange-200";
-    Icon = Shield;
+    Icon = Medal;
   } else {
-    tier = "Risk";
-    color = "bg-red-100 text-red-700 border-red-200";
-    Icon = ShieldAlert;
+    // ✅ CHANGED: Was "Risk", now "Mukando Score"
+    // ✅ CHANGED: Was Red, now Blue (Neutral/Positive)
+    tier = "Mukando Score";
+    color = "bg-blue-50 text-blue-700 border-blue-200";
+    Icon = Shield;
   }
 
   return (
