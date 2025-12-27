@@ -136,7 +136,7 @@ export function AdminForms({ groupId }: { groupId: string }) {
     }
   };
 
-  // --- APPROVAL LOGIC (WITH SMART SCORING) ---
+  // --- APPROVAL LOGIC (UPDATED WITH NEW SCORING) ---
   const approveTransaction = async (tx: PendingTransaction) => {
     setLoading(true);
     try {
@@ -148,20 +148,18 @@ export function AdminForms({ groupId }: { groupId: string }) {
       const paymentDay = paymentDate.getDate();
       const deadline = parseInt(dueDay);
 
-      // If paid on or before deadline day: Full +5
+      // ✅ UPDATED SCORING LOGIC HERE
       if (paymentDay <= deadline) {
-          pointsEarned = 5;
-          scoreMessage = "Paid On Time (+5 Points)";
+          pointsEarned = 20; // Was 5
+          scoreMessage = "Excellent! Paid On Time (+20 Points)";
       } 
-      // If paid within 5 days late: Partial +2
       else if (paymentDay <= deadline + 5) {
-          pointsEarned = 2;
-          scoreMessage = "Paid Late (+2 Points)";
+          pointsEarned = 10; // Was 2
+          scoreMessage = "Paid Late (+10 Points)";
       } 
-      // Very late: 0 Points
       else {
-          pointsEarned = 0;
-          scoreMessage = "Paid Very Late (0 Points)";
+          pointsEarned = 5; // Was 0. Now rewarding +5 for at least paying.
+          scoreMessage = "Paid Very Late (+5 Points)";
       }
 
       await runTransaction(db, async (transaction) => {
@@ -179,7 +177,7 @@ export function AdminForms({ groupId }: { groupId: string }) {
         const userSnap = await transaction.get(userRef);
         if (userSnap.exists()) {
              const currentScore = userSnap.data().creditScore || 400; 
-             const newScore = Math.min(850, currentScore + pointsEarned);
+             const newScore = Math.min(850, currentScore + pointsEarned); // Max score 850
              transaction.update(userRef, { creditScore: newScore });
         }
       });
@@ -206,6 +204,7 @@ export function AdminForms({ groupId }: { groupId: string }) {
             const userSnap = await transaction.get(userRef);
             if (userSnap.exists()) {
                 const currentScore = userSnap.data().creditScore || 400;
+                // Penalize -10 points
                 const newScore = Math.max(0, currentScore - 10); 
                 transaction.update(userRef, { creditScore: newScore });
             }
@@ -236,8 +235,12 @@ export function AdminForms({ groupId }: { groupId: string }) {
         const batch = (await import("firebase/firestore")).writeBatch(db);
         batch.update(doc(db, 'groups', groupId), { currentBalanceCents: increment(amountCents) });
         batch.update(doc(db, 'groups', groupId, 'members', selectedMemberId), { contributionBalanceCents: increment(amountCents) });
+        
+        // Bonus for manual entry? Maybe +5 for just paying.
+        batch.update(doc(db, 'users', selectedMemberId), { creditScore: increment(5) });
+
         await batch.commit();
-        toast({ title: "Recorded", description: "Manual payment saved." });
+        toast({ title: "Recorded", description: "Manual payment saved (+5 pts)." });
         setAmount(''); setReference('');
     } catch (error) { console.error(error); } finally { setLoading(false); }
   };
@@ -274,7 +277,7 @@ export function AdminForms({ groupId }: { groupId: string }) {
   return (
     <div className="space-y-8">
       
-      {/* 1. SETTINGS CARD (NEW) */}
+      {/* 1. SETTINGS CARD */}
       <Card className="border-slate-200 bg-slate-50">
         <CardHeader className="pb-3">
             <div className="flex items-center gap-2">
@@ -312,7 +315,7 @@ export function AdminForms({ groupId }: { groupId: string }) {
             </div>
             <CardDescription>
                 System will check if paid by Day {dueDay}. 
-                <span className="font-bold ml-1 text-orange-700">On Time = +5 pts, Late = +2 pts.</span>
+                <span className="font-bold ml-1 text-orange-700">On Time = +20 pts, Late = +10 pts.</span>
             </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
