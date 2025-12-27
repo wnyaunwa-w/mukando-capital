@@ -22,7 +22,7 @@ import { useToast } from "@/hooks/use-toast";
 import { addDays, addMonths, format } from "date-fns";
 import { 
   getFirestore, doc, updateDoc, collection, getDocs, getDoc, 
-  addDoc, serverTimestamp, query, where, runTransaction, increment 
+  addDoc, serverTimestamp, query, where, runTransaction, increment, onSnapshot 
 } from "firebase/firestore";
 import { getFirebaseApp } from "@/lib/firebase/client";
 import { formatCurrency } from "@/lib/utils";
@@ -77,54 +77,74 @@ export function AdminForms({ groupId }: { groupId: string }) {
   const [startDate, setStartDate] = useState(format(new Date(), "yyyy-MM-dd"));
   const [frequency, setFrequency] = useState("monthly");
 
-  // --- 1. FETCH DATA ---
+  // --- 1. FETCH MEMBERS & SETTINGS (One-time) ---
   useEffect(() => {
     if (!groupId) return;
 
-    const fetchData = async () => {
+    const fetchStaticData = async () => {
       // A. Fetch Group Settings (Due Day)
-      const groupDoc = await getDoc(doc(db, "groups", groupId));
-      if (groupDoc.exists()) {
-        const data = groupDoc.data();
-        if (data.paymentDueDay) setDueDay(data.paymentDueDay.toString());
-      }
+      try {
+        const groupDoc = await getDoc(doc(db, "groups", groupId));
+        if (groupDoc.exists()) {
+            const data = groupDoc.data();
+            if (data.paymentDueDay) setDueDay(data.paymentDueDay.toString());
+        }
+      } catch (e) { console.error("Error fetching settings:", e); }
 
       // B. Fetch Members
-      const membersRef = collection(db, "groups", groupId, "members");
-      const snapshot = await getDocs(membersRef);
-      
-      const memberDataPromises = snapshot.docs.map(async (memberDoc) => {
-         const mData = memberDoc.data();
-         let displayName = mData.displayName || "Member";
-         let photoURL = mData.photoURL || null;
-         let email = mData.email || "";
+      try {
+        const membersRef = collection(db, "groups", groupId, "members");
+        const snapshot = await getDocs(membersRef);
+        
+        const memberDataPromises = snapshot.docs.map(async (memberDoc) => {
+            const mData = memberDoc.data();
+            let displayName = mData.displayName || "Member";
+            let photoURL = mData.photoURL || null;
+            let email = mData.email || "";
 
-         try {
-            const userSnap = await getDoc(doc(db, "users", memberDoc.id));
-            if (userSnap.exists()) {
-                const uData = userSnap.data();
-                if (uData.displayName) displayName = uData.displayName;
-                if (uData.photoURL) photoURL = uData.photoURL;
-            }
-         } catch (e) { console.error(e); }
+            try {
+                const userSnap = await getDoc(doc(db, "users", memberDoc.id));
+                if (userSnap.exists()) {
+                    const uData = userSnap.data();
+                    if (uData.displayName) displayName = uData.displayName;
+                    if (uData.photoURL) photoURL = uData.photoURL;
+                }
+            } catch (e) { console.error(e); }
 
-         return { id: memberDoc.id, name: displayName, email, photoURL, role: mData.role };
-      });
+            return { id: memberDoc.id, name: displayName, email, photoURL, role: mData.role };
+        });
 
-      const fullMembers = await Promise.all(memberDataPromises);
-      setMembers(fullMembers);
-      setScheduleMembers(fullMembers.map(m => ({
-          userId: m.id, displayName: m.name, photoURL: m.photoURL || undefined, role: m.role || 'member'
-      })));
-
-      // C. Fetch Pending Transactions
-      const qTx = query(collection(db, 'groups', groupId, 'transactions'), where('status', '==', 'pending_approval'));
-      const snapTx = await getDocs(qTx);
-      setPendingTx(snapTx.docs.map(d => ({ id: d.id, ...d.data() } as PendingTransaction)));
+        const fullMembers = await Promise.all(memberDataPromises);
+        setMembers(fullMembers);
+        setScheduleMembers(fullMembers.map(m => ({
+            userId: m.id, displayName: m.name, photoURL: m.photoURL || undefined, role: m.role || 'member'
+        })));
+      } catch (e) { console.error("Error fetching members:", e); }
     };
 
-    fetchData();
-  }, [groupId, db, isDialogOpen]);
+    fetchStaticData();
+  }, [groupId, db]);
+
+  // --- 2. LISTEN FOR PENDING TRANSACTIONS (Real-time) ---
+  useEffect(() => {
+    if (!groupId) return;
+
+    const qTx = query(
+        collection(db, 'groups', groupId, 'transactions'), 
+        where('status', '==', 'pending_approval')
+    );
+
+    const unsubscribe = onSnapshot(qTx, (snapshot) => {
+        const txs = snapshot.docs.map(d => ({ 
+            id: d.id, 
+            ...d.data() 
+        } as PendingTransaction));
+        setPendingTx(txs);
+    });
+
+    return () => unsubscribe();
+  }, [groupId, db]);
+
 
   // --- SETTINGS: SAVE DUE DAY ---
   const saveDueDay = async () => {
@@ -136,7 +156,7 @@ export function AdminForms({ groupId }: { groupId: string }) {
     }
   };
 
-  // --- APPROVAL LOGIC (UPDATED WITH NEW SCORING) ---
+  // --- APPROVAL LOGIC (SCORING V3) ---
   const approveTransaction = async (tx: PendingTransaction) => {
     setLoading(true);
     try {
@@ -148,17 +168,17 @@ export function AdminForms({ groupId }: { groupId: string }) {
       const paymentDay = paymentDate.getDate();
       const deadline = parseInt(dueDay);
 
-      // ✅ UPDATED SCORING LOGIC HERE
+      // Scoring Logic:
       if (paymentDay <= deadline) {
-          pointsEarned = 20; // Was 5
+          pointsEarned = 20; 
           scoreMessage = "Excellent! Paid On Time (+20 Points)";
       } 
       else if (paymentDay <= deadline + 5) {
-          pointsEarned = 10; // Was 2
+          pointsEarned = 10; 
           scoreMessage = "Paid Late (+10 Points)";
       } 
       else {
-          pointsEarned = 5; // Was 0. Now rewarding +5 for at least paying.
+          pointsEarned = 5; 
           scoreMessage = "Paid Very Late (+5 Points)";
       }
 
@@ -183,7 +203,7 @@ export function AdminForms({ groupId }: { groupId: string }) {
       });
 
       toast({ title: "Approved", description: `${scoreMessage}` });
-      setPendingTx(prev => prev.filter(t => t.id !== tx.id));
+      // Note: onSnapshot will automatically remove it from the list
     } catch (error) {
       console.error(error);
       toast({ title: "Error", description: "Failed to approve.", variant: "destructive" });
@@ -209,7 +229,6 @@ export function AdminForms({ groupId }: { groupId: string }) {
                 transaction.update(userRef, { creditScore: newScore });
             }
         });
-        setPendingTx(prev => prev.filter(t => t.id !== txId));
         toast({ title: "Rejected", description: "Transaction rejected. (-10 Points)" });
     } catch (e) { console.error(e); } finally { setLoading(false); }
   };
@@ -236,7 +255,7 @@ export function AdminForms({ groupId }: { groupId: string }) {
         batch.update(doc(db, 'groups', groupId), { currentBalanceCents: increment(amountCents) });
         batch.update(doc(db, 'groups', groupId, 'members', selectedMemberId), { contributionBalanceCents: increment(amountCents) });
         
-        // Bonus for manual entry? Maybe +5 for just paying.
+        // Bonus for manual entry (+5)
         batch.update(doc(db, 'users', selectedMemberId), { creditScore: increment(5) });
 
         await batch.commit();
