@@ -43,6 +43,7 @@ interface PendingTransaction {
   amountCents: number;
   description: string;
   date: string;
+  status?: string; // Added status to interface
 }
 
 interface ScheduledMember {
@@ -82,7 +83,6 @@ export function AdminForms({ groupId }: { groupId: string }) {
     if (!groupId) return;
 
     const fetchStaticData = async () => {
-      // A. Fetch Group Settings (Due Day)
       try {
         const groupDoc = await getDoc(doc(db, "groups", groupId));
         if (groupDoc.exists()) {
@@ -91,7 +91,6 @@ export function AdminForms({ groupId }: { groupId: string }) {
         }
       } catch (e) { console.error("Error fetching settings:", e); }
 
-      // B. Fetch Members
       try {
         const membersRef = collection(db, "groups", groupId, "members");
         const snapshot = await getDocs(membersRef);
@@ -125,13 +124,14 @@ export function AdminForms({ groupId }: { groupId: string }) {
     fetchStaticData();
   }, [groupId, db]);
 
-  // --- 2. LISTEN FOR PENDING TRANSACTIONS (Real-time) ---
+  // --- 2. LISTEN FOR PENDING TRANSACTIONS (Real-time & Robust) ---
   useEffect(() => {
     if (!groupId) return;
 
+    // ✅ FIX: Look for BOTH 'pending' and 'pending_approval' to catch all
     const qTx = query(
         collection(db, 'groups', groupId, 'transactions'), 
-        where('status', '==', 'pending_approval')
+        where('status', 'in', ['pending', 'pending_approval'])
     );
 
     const unsubscribe = onSnapshot(qTx, (snapshot) => {
@@ -139,7 +139,10 @@ export function AdminForms({ groupId }: { groupId: string }) {
             id: d.id, 
             ...d.data() 
         } as PendingTransaction));
+        console.log("Pending TXs found:", txs.length); // Debug log
         setPendingTx(txs);
+    }, (error) => {
+        console.error("Error listening to transactions:", error);
     });
 
     return () => unsubscribe();
@@ -203,7 +206,6 @@ export function AdminForms({ groupId }: { groupId: string }) {
       });
 
       toast({ title: "Approved", description: `${scoreMessage}` });
-      // Note: onSnapshot will automatically remove it from the list
     } catch (error) {
       console.error(error);
       toast({ title: "Error", description: "Failed to approve.", variant: "destructive" });
@@ -224,7 +226,6 @@ export function AdminForms({ groupId }: { groupId: string }) {
             const userSnap = await transaction.get(userRef);
             if (userSnap.exists()) {
                 const currentScore = userSnap.data().creditScore || 400;
-                // Penalize -10 points
                 const newScore = Math.max(0, currentScore - 10); 
                 transaction.update(userRef, { creditScore: newScore });
             }
@@ -247,7 +248,7 @@ export function AdminForms({ groupId }: { groupId: string }) {
             description: reference || 'Manual Entry',
             userId: selectedMemberId,
             userDisplayName: selectedMember?.name,
-            status: 'completed',
+            status: 'completed', // Auto-approved
             createdAt: serverTimestamp(),
             date: new Date().toISOString().split('T')[0]
         });
@@ -255,7 +256,6 @@ export function AdminForms({ groupId }: { groupId: string }) {
         batch.update(doc(db, 'groups', groupId), { currentBalanceCents: increment(amountCents) });
         batch.update(doc(db, 'groups', groupId, 'members', selectedMemberId), { contributionBalanceCents: increment(amountCents) });
         
-        // Bonus for manual entry (+5)
         batch.update(doc(db, 'users', selectedMemberId), { creditScore: increment(5) });
 
         await batch.commit();
@@ -349,7 +349,12 @@ export function AdminForms({ groupId }: { groupId: string }) {
                             <div className="text-lg font-bold text-[#2C514C] mt-1">{formatCurrency(tx.amountCents)}</div>
                         </div>
                         <div className="flex gap-2 w-full sm:w-auto">
-                            <Button size="sm" variant="outline" className="border-red-200 text-red-700 hover:bg-red-50 flex-1" onClick={() => rejectTransaction(tx.id, tx.userId)}>
+                            <Button 
+                                size="sm" 
+                                variant="outline" 
+                                className="border-red-200 text-red-700 hover:bg-red-50 flex-1"
+                                onClick={() => rejectTransaction(tx.id, tx.userId)}
+                            >
                                 <XCircle className="w-4 h-4 mr-1" /> Reject
                             </Button>
                             <Button size="sm" className="bg-[#2C514C] hover:bg-[#23413d] text-white flex-1" onClick={() => approveTransaction(tx)} disabled={loading}>
