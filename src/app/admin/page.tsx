@@ -176,10 +176,13 @@ export default function SuperAdminPage() {
             totalEarningsCents: earnings 
         });
 
-        // E. FETCH SETTINGS
+        // E. FETCH SETTINGS (Fixed logic for 0 fee)
         const settingsSnap = await getDoc(doc(db, "settings", "global"));
         if (settingsSnap.exists()) {
-            setPlatformFeeCents(settingsSnap.data().platformFeeCents || 100);
+            const data = settingsSnap.data();
+            // FIX: Check undefined strictly so '0' is not treated as falsy
+            const fee = data.platformFeeCents !== undefined ? data.platformFeeCents : 100;
+            setPlatformFeeCents(fee);
         }
 
       } catch (error) {
@@ -273,7 +276,10 @@ export default function SuperAdminPage() {
     setSavingFee(true);
     try {
         await setDoc(doc(db, "settings", "global"), { platformFeeCents }, { merge: true });
-        toast({ title: "Saved", description: "Global platform fee updated." });
+        toast({ 
+            title: "Saved", 
+            description: platformFeeCents === 0 ? "Platform is now FREE." : "Global platform fee updated." 
+        });
     } catch (e) {
         toast({ variant: "destructive", title: "Error", description: "Could not save settings." });
     } finally {
@@ -341,7 +347,9 @@ export default function SuperAdminPage() {
             <CardHeader className="pb-1 pt-4 px-4">
                 <CardTitle className="text-xs font-medium text-slate-400 uppercase tracking-wider">Sub Fee</CardTitle>
                 <div className="text-2xl font-bold text-white flex items-center">
-                    {formatCurrency(platformFeeCents)}<span className="text-xs text-slate-500 font-normal ml-1">/mo</span>
+                    {/* Handle 0 properly */}
+                    {platformFeeCents === 0 ? "FREE" : formatCurrency(platformFeeCents)}
+                    {platformFeeCents > 0 && <span className="text-xs text-slate-500 font-normal ml-1">/mo</span>}
                 </div>
             </CardHeader>
             <CardContent className="px-4 pb-4 pt-1 flex items-center gap-2">
