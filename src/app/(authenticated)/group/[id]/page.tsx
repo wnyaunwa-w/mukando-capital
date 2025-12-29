@@ -25,7 +25,7 @@ import {
   Car, 
   Home, 
   MoreHorizontal,
-  CalendarClock // ✅ New Icon
+  CalendarClock
 } from "lucide-react"; 
 import { formatCurrency } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
@@ -195,9 +195,14 @@ function GroupContent() {
         }
     });
 
-    // 5. Global Settings
+    // 5. Global Settings (✅ FIXED LOGIC)
     const unsubSettings = onSnapshot(doc(db, "settings", "global"), (docSnap) => {
-        if (docSnap.exists() && docSnap.data().platformFeeCents) setPlatformFee(docSnap.data().platformFeeCents);
+        if (docSnap.exists()) {
+            const data = docSnap.data();
+            // Check strictly for undefined, allowing 0 to pass through
+            const fee = data.platformFeeCents !== undefined ? data.platformFeeCents : 100;
+            setPlatformFee(fee);
+        }
     });
 
     return () => { unsubGroup(); unsubMember(); unsubPayouts(); unsubSettings(); unsubUserGlobal(); };
@@ -270,6 +275,13 @@ function GroupContent() {
       const message = `Hi Admin, checking on my Platform Fee approval for group ${group?.name}. My payment ref was ${currentMember?.lastPaymentRef || 'sent recently'}.`;
       window.open(`https://wa.me/${SUPER_ADMIN_PHONE}?text=${encodeURIComponent(message)}`, '_blank');
   }
+
+  // ✅ HELPER: Render Button Text Logic
+  const renderFeeButtonText = () => {
+      if (isPending) return "Payment Under Review";
+      if (platformFee === 0) return "Activate Access (Free)";
+      return `Pay Platform Fee (${formatCurrency(platformFee)})`;
+  };
 
   if (!group) return <div className="p-10 flex justify-center"><Loader2 className="animate-spin text-[#2C514C]" /></div>;
 
@@ -350,7 +362,7 @@ function GroupContent() {
             <CardContent className="pb-4 pt-0">
                 <div className="text-3xl font-bold text-white truncate">{formatCurrency(currentMember?.contributionBalanceCents || 0)}</div>
                 
-                {/* ✅ NEXT DUE DATE DISPLAY */}
+                {/* NEXT DUE DATE DISPLAY */}
                 {nextDueDateDisplay && (
                     <div className="mt-2 flex items-center gap-1.5 text-xs text-slate-300 font-medium bg-white/10 px-2 py-1 rounded w-fit">
                         <CalendarClock className="w-3.5 h-3.5" />
@@ -390,7 +402,16 @@ function GroupContent() {
       {/* ACTION BUTTONS */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         <Button className="bg-[#2C514C] hover:bg-[#1b3330] text-white h-12 w-full font-bold shadow-sm" onClick={() => setIsClaimOpen(true)} disabled={isLocked}>Claim Manual Payment</Button>
-        <Button className="bg-[#576066] hover:bg-[#464e54] text-white h-12 w-full font-bold shadow-sm" onClick={() => setIsPayFeeOpen(true)} disabled={isPending}>{isPending ? "Payment Under Review" : `Pay Platform Fee (${formatCurrency(platformFee)})`}</Button>
+        
+        {/* ✅ UPDATED BUTTON: Uses renderFeeButtonText() */}
+        <Button 
+            className="bg-[#576066] hover:bg-[#464e54] text-white h-12 w-full font-bold shadow-sm" 
+            onClick={() => setIsPayFeeOpen(true)} 
+            disabled={isPending}
+        >
+            {renderFeeButtonText()}
+        </Button>
+        
         <Button className="bg-[#122932] hover:bg-[#0d1f26] text-white h-12 w-full font-bold shadow-sm disabled:opacity-40 disabled:cursor-not-allowed" onClick={() => setIsPayoutOpen(true)} disabled={!isAdmin} title={!isAdmin ? "Only Admins can initiate payouts" : "Send money to a member"}>Payout Member</Button>
       </div>
 
@@ -407,7 +428,11 @@ function GroupContent() {
               <div className="bg-slate-100 p-4 rounded-full"><Lock className="h-12 w-12 text-slate-400" /></div>
               <h3 className="text-lg font-bold text-slate-900">Access Restricted</h3>
               <p className="text-slate-500 max-w-sm mx-auto">Activate your group privileges by paying Platform Fee.</p>
-              <Button onClick={() => setIsPayFeeOpen(true)} className="mt-2 bg-[#2C514C] hover:bg-[#25423e] text-white">Pay Now ({formatCurrency(platformFee)})</Button>
+              
+              {/* ✅ UPDATED LOCKED BUTTON: Handles Free State */}
+              <Button onClick={() => setIsPayFeeOpen(true)} className="mt-2 bg-[#2C514C] hover:bg-[#25423e] text-white">
+                  {platformFee === 0 ? "Activate Access (Free)" : `Pay Now (${formatCurrency(platformFee)})`}
+              </Button>
           </div>
       ) : (
         <Tabs defaultValue="ledger" className="w-full mt-4">
