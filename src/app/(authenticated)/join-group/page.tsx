@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
 import { Button } from "@/components/ui/button";
@@ -15,7 +15,7 @@ import {
   setDoc, 
   updateDoc, 
   increment, 
-  arrayUnion, // ✅ Import arrayUnion
+  arrayUnion,
   serverTimestamp,
   collection,
   query,
@@ -31,11 +31,34 @@ export default function JoinGroupPage() {
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
 
+  // --- DEBUGGING: Check what groups are actually visible ---
+  useEffect(() => {
+    const checkGroups = async () => {
+        const db = getFirestore(getFirebaseApp());
+        try {
+            console.log("--- DEBUG: Fetching ALL groups to check visibility ---");
+            const snap = await getDocs(collection(db, "groups"));
+            console.log(`Found ${snap.size} groups in total.`);
+            snap.forEach(d => {
+                const data = d.data();
+                console.log(`Group ID: ${d.id} | Name: ${data.name} | Invite Code: "${data.inviteCode}"`);
+            });
+            console.log("----------------------------------------------------");
+        } catch (e) {
+            console.error("DEBUG ERROR: Could not list groups. Rules might be blocking.", e);
+        }
+    };
+    if (user) checkGroups();
+  }, [user]);
+  // ---------------------------------------------------------
+
   const handleJoin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || !code) return;
     
+    // Clean input
     const inputInviteCode = code.trim().toUpperCase(); 
+    console.log(`Attempting to join with code: "${inputInviteCode}"`);
 
     setLoading(true);
     const db = getFirestore(getFirebaseApp());
@@ -46,13 +69,16 @@ export default function JoinGroupPage() {
       const q = query(groupsRef, where("inviteCode", "==", inputInviteCode));
       const querySnapshot = await getDocs(q);
 
+      console.log(`Query returned ${querySnapshot.size} results.`);
+
       if (querySnapshot.empty) {
-        throw new Error("Invalid Invite Code. No group found.");
+        throw new Error(`Invalid Invite Code. No group found for "${inputInviteCode}".`);
       }
 
       const groupDoc = querySnapshot.docs[0];
       const targetGroupId = groupDoc.id; 
       const groupData = groupDoc.data();
+      console.log("Found group:", groupData.name);
 
       // 2. Add User to Members Subcollection
       const memberRef = doc(db, "groups", targetGroupId, "members", user.uid);
@@ -68,11 +94,11 @@ export default function JoinGroupPage() {
         subscriptionStatus: 'unpaid'
       }, { merge: true });
 
-      // 3. UPDATE GROUP: Add user to memberIds array & increment count
+      // 3. UPDATE GROUP
       const groupRef = doc(db, "groups", targetGroupId);
       await updateDoc(groupRef, {
         membersCount: increment(1),
-        memberIds: arrayUnion(user.uid) // ✅ Critical for Dashboard visibility
+        memberIds: arrayUnion(user.uid)
       });
 
       toast({ 
@@ -83,11 +109,11 @@ export default function JoinGroupPage() {
       router.push(`/group/${targetGroupId}`);
 
     } catch (error: any) {
-      console.error(error);
+      console.error("JOIN ERROR:", error);
       toast({ 
         variant: "destructive", 
         title: "Error", 
-        description: error.message || "Failed to join group." 
+        description: error.message 
       });
     } finally {
       setLoading(false);
