@@ -5,17 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { 
-  Loader2, 
-  ArrowRight, 
-  Users, 
-  Wallet, 
-  Search, 
-  Plus, 
-  TrendingUp, 
-  Calendar,
-  HelpCircle
-} from "lucide-react";
+import { Loader2, ArrowRight, Users, Wallet, Search, Plus, TrendingUp, Calendar, HelpCircle } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { 
   getFirestore, 
@@ -24,20 +14,14 @@ import {
   getDoc, 
   doc, 
   where,
-  collectionGroup
+  collection // ✅ Changed from collectionGroup
 } from "firebase/firestore";
 import { getFirebaseApp } from "@/lib/firebase/client";
 import Link from "next/link";
 import { ProfileAlert } from "@/components/profile-alert"; 
 import { CreditScoreGauge } from "@/components/credit-score-gauge"; 
 
-// --- THE COLOR PALETTE ---
-const CARD_COLORS = [
-  "bg-[#2C514C]", // Dark Slate Grey
-  "bg-[#576066]", // Blue Slate
-  "bg-[#2f6f3e]", // Mukando Green
-  "bg-[#122932]", // Jet Black
-];
+const CARD_COLORS = ["bg-[#2C514C]", "bg-[#576066]", "bg-[#2f6f3e]", "bg-[#122932]"];
 
 interface DashboardGroup {
   id: string;
@@ -55,13 +39,9 @@ export default function DashboardPage() {
   const router = useRouter();
   const [groups, setGroups] = useState<DashboardGroup[]>([]);
   const [loading, setLoading] = useState(true);
-
-  // Stats State
   const [totalSavings, setTotalSavings] = useState(0);
   const [nextPayoutDate, setNextPayoutDate] = useState<string>("--/--");
   const [creditScore, setCreditScore] = useState<number>(400);
-  
-  // ✅ NEW: Track profile completeness based on database, not just Auth
   const [isProfileComplete, setIsProfileComplete] = useState(true);
 
   useEffect(() => {
@@ -70,71 +50,57 @@ export default function DashboardPage() {
       const db = getFirestore(getFirebaseApp());
       
       try {
-          // 1. Fetch User Profile (For Credit Score & Profile Completeness)
+          // 1. User Profile
           const userRef = doc(db, "users", user.uid);
           const userSnap = await getDoc(userRef);
-          
           if (userSnap.exists()) {
               const data = userSnap.data();
               setCreditScore(data.creditScore !== undefined ? data.creditScore : 400);
-              
-              // ✅ REAL-TIME CHECK: Check Firestore fields directly
-              // This fixes the issue where Auth object is stale
               const hasName = data.displayName && data.displayName.trim().length > 0;
               const hasPhone = data.phoneNumber && data.phoneNumber.trim().length > 0;
-              
-              if (hasName && hasPhone) {
-                  setIsProfileComplete(true);
-              } else {
-                  setIsProfileComplete(false);
-              }
+              setIsProfileComplete(hasName && hasPhone);
           } else {
               setCreditScore(400);
-              setIsProfileComplete(false); // No profile doc = incomplete
+              setIsProfileComplete(false);
           }
 
-          // 2. Fetch Groups
-          const myMembershipsQuery = query(
-            collectionGroup(db, 'members'),
-            where('userId', '==', user.uid)
-          );
-
-          const membershipSnapshot = await getDocs(myMembershipsQuery);
+          // 2. Fetch Groups (New Query Logic: array-contains)
+          const groupsRef = collection(db, "groups");
+          // ✅ Query top-level groups where memberIds contains user.uid
+          const myGroupsQuery = query(groupsRef, where("memberIds", "array-contains", user.uid));
+          const groupsSnapshot = await getDocs(myGroupsQuery);
           
           let myUpcomingPayouts: string[] = [];
 
-          const groupPromises = membershipSnapshot.docs.map(async (memberDoc) => {
-             const groupRef = memberDoc.ref.parent.parent; 
-             if (groupRef) {
-                 const groupSnap = await getDoc(groupRef);
-                 if (groupSnap.exists()) {
-                     const gData = groupSnap.data();
-                     const mData = memberDoc.data();
+          const groupPromises = groupsSnapshot.docs.map(async (groupDoc) => {
+             const gData = groupDoc.data();
+             
+             // Check Status
+             if (gData.status === 'suspended' || gData.status === 'archived') return null;
 
-                     // --- LOGIC: Collect Payout Dates ---
-                     if (gData.payoutSchedule && Array.isArray(gData.payoutSchedule)) {
-                        const mySlots = gData.payoutSchedule.filter((slot: any) => 
-                            slot.userId === user.uid && 
-                            slot.status === 'pending'
-                        );
-                        mySlots.forEach((slot: any) => myUpcomingPayouts.push(slot.payoutDate));
-                     }
+             // Fetch MY member details for this group (to get myContribution & role)
+             const memberRef = doc(db, "groups", groupDoc.id, "members", user.uid);
+             const memberSnap = await getDoc(memberRef);
+             const mData = memberSnap.exists() ? memberSnap.data() : { contributionBalanceCents: 0, role: 'member' };
 
-                     if (gData.status !== 'suspended' && gData.status !== 'archived') {
-                         return {
-                             id: groupSnap.id,
-                             name: gData.name,
-                             description: gData.description,
-                             totalPool: gData.currentBalanceCents || 0,
-                             memberCount: gData.membersCount || 0,
-                             myContribution: mData.contributionBalanceCents || 0,
-                             role: mData.role,
-                             status: gData.status
-                         } as DashboardGroup;
-                     }
-                 }
+             // Payout Logic
+             if (gData.payoutSchedule && Array.isArray(gData.payoutSchedule)) {
+                const mySlots = gData.payoutSchedule.filter((slot: any) => 
+                    slot.userId === user.uid && slot.status === 'pending'
+                );
+                mySlots.forEach((slot: any) => myUpcomingPayouts.push(slot.payoutDate));
              }
-             return null;
+
+             return {
+                 id: groupDoc.id,
+                 name: gData.name,
+                 description: gData.description,
+                 totalPool: gData.currentBalanceCents || 0,
+                 memberCount: gData.membersCount || 0,
+                 myContribution: mData.contributionBalanceCents || 0,
+                 role: mData.role,
+                 status: gData.status
+             } as DashboardGroup;
           });
 
           const results = await Promise.all(groupPromises);
@@ -142,20 +108,14 @@ export default function DashboardPage() {
           
           setGroups(validGroups);
 
-          // Calculate Total Savings
+          // Stats
           const total = validGroups.reduce((sum, g) => sum + (g.myContribution || 0), 0);
           setTotalSavings(total);
 
-          // Calculate Next Payout Date
           if (myUpcomingPayouts.length > 0) {
               myUpcomingPayouts.sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
               const dateObj = new Date(myUpcomingPayouts[0]);
-              const formatted = dateObj.toLocaleDateString('en-GB', { 
-                  day: '2-digit', 
-                  month: '2-digit', 
-                  year: 'numeric' 
-              });
-              setNextPayoutDate(formatted);
+              setNextPayoutDate(dateObj.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }));
           } else {
               setNextPayoutDate("No upcoming");
           }
@@ -179,129 +139,44 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-8 pb-10">
-      
-      {/* ALERT COMPONENT - CONDITIONALLY RENDERED BASED ON FIRESTORE DATA */}
       {!isProfileComplete && <ProfileAlert />}
 
-      {/* 1. WELCOME & ACTIONS */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
         <div>
            <div className="flex items-center gap-3">
-               <h1 className="text-3xl font-bold text-[#122932]">
-                 Welcome back, {user?.displayName?.split(" ")[0] || "Saver"}! 👋
-               </h1>
+               <h1 className="text-3xl font-bold text-[#122932]">Welcome back, {user?.displayName?.split(" ")[0] || "Saver"}! 👋</h1>
            </div>
            <p className="text-slate-500 mt-1">Here is your financial overview.</p>
         </div>
-        
-        {/* Buttons */}
         <div className="flex gap-3 w-full md:w-auto">
-            <Link href="/join-group">
-                <Button className="bg-[#576066] hover:bg-[#464e54] gap-2 text-white w-full md:w-auto shadow-md">
-                    <Search className="w-4 h-4" /> Join Group
-                </Button>
-            </Link>
-            <Link href="/create-group">
-                <Button className="bg-[#2C514C] hover:bg-[#25423e] gap-2 text-white w-full md:w-auto shadow-md">
-                    <Plus className="w-4 h-4" /> Create Group
-                </Button>
-            </Link>
+            <Link href="/join-group"><Button className="bg-[#576066] hover:bg-[#464e54] gap-2 text-white w-full md:w-auto shadow-md"><Search className="w-4 h-4" /> Join Group</Button></Link>
+            <Link href="/create-group"><Button className="bg-[#2C514C] hover:bg-[#25423e] gap-2 text-white w-full md:w-auto shadow-md"><Plus className="w-4 h-4" /> Create Group</Button></Link>
         </div>
       </div>
 
-      {/* FINANCIAL HEALTH */}
       <Card className="border-none shadow-md bg-white">
-        <CardHeader>
-          <CardTitle className="text-xl font-bold text-[#122932] flex items-center gap-2">
-            <TrendingUp className="w-5 h-5 text-blue-600" /> Your Financial Health
-          </CardTitle>
-          <CardDescription>Your Mukando Score is a measure of your reliability and savings history.</CardDescription>
-        </CardHeader>
+        <CardHeader><CardTitle className="text-xl font-bold text-[#122932] flex items-center gap-2"><TrendingUp className="w-5 h-5 text-blue-600" /> Your Financial Health</CardTitle><CardDescription>Your Mukando Score is a measure of your reliability.</CardDescription></CardHeader>
         <CardContent className="flex flex-col md:flex-row items-center justify-around gap-8 pt-2 pb-6">
-            <div className="flex-shrink-0 animate-in fade-in zoom-in duration-700">
-                <CreditScoreGauge score={creditScore} />
-            </div>
-            
+            <div className="flex-shrink-0 animate-in fade-in zoom-in duration-700"><CreditScoreGauge score={creditScore} /></div>
             <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-4 w-full max-w-2xl">
-                <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 flex gap-3">
-                    <HelpCircle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
-                    <div>
-                        <p className="text-sm font-bold text-blue-900">Why it matters</p>
-                        <p className="text-sm text-blue-700 leading-relaxed">A higher score builds trust, giving you access to more groups and potentially larger payout slots.</p>
-                    </div>
-                </div>
-                <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-100 flex gap-3">
-                    <TrendingUp className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" />
-                    <div>
-                        <p className="text-sm font-bold text-emerald-900">How to improve</p>
-                        <p className="text-sm text-emerald-700 leading-relaxed">Make your contributions on time and promptly confirm when you receive a payout.</p>
-                    </div>
-                </div>
+                <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 flex gap-3"><HelpCircle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" /><div><p className="text-sm font-bold text-blue-900">Why it matters</p><p className="text-sm text-blue-700">A higher score builds trust for larger groups.</p></div></div>
+                <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-100 flex gap-3"><TrendingUp className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" /><div><p className="text-sm font-bold text-emerald-900">How to improve</p><p className="text-sm text-emerald-700">Make contributions on time.</p></div></div>
             </div>
         </CardContent>
       </Card>
 
-      {/* 2. STATS OVERVIEW CARDS */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-emerald-50 p-6 rounded-2xl shadow-sm border border-emerald-100">
-          <div className="flex justify-between items-start mb-4">
-            <div className="p-2 bg-white rounded-lg shadow-sm">
-              <Wallet className="w-6 h-6 text-emerald-700" />
-            </div>
-          </div>
-          <p className="text-sm text-emerald-800 font-medium">Total Savings</p>
-          <h3 className="text-3xl font-bold text-emerald-900 mt-1">{formatCurrency(totalSavings)}</h3>
-        </div>
-
-        <div className="bg-blue-50 p-6 rounded-2xl shadow-sm border border-blue-100">
-          <div className="flex justify-between items-start mb-4">
-            <div className="p-2 bg-white rounded-lg shadow-sm">
-              <Users className="w-6 h-6 text-blue-700" />
-            </div>
-          </div>
-          <p className="text-sm text-blue-800 font-medium">Active Groups</p>
-          <h3 className="text-3xl font-bold text-blue-900 mt-1">{groups.length}</h3>
-        </div>
-
-        <div className="bg-purple-50 p-6 rounded-2xl shadow-sm border border-purple-100">
-          <div className="flex justify-between items-start mb-4">
-            <div className="p-2 bg-white rounded-lg shadow-sm">
-              <Calendar className="w-6 h-6 text-purple-700" />
-            </div>
-          </div>
-          <p className="text-sm text-purple-800 font-medium">Your Next Payout</p>
-          <h3 className="text-3xl font-bold text-purple-900 mt-1">{nextPayoutDate}</h3>
-        </div>
+        <div className="bg-emerald-50 p-6 rounded-2xl shadow-sm border border-emerald-100"><div className="flex justify-between items-start mb-4"><div className="p-2 bg-white rounded-lg shadow-sm"><Wallet className="w-6 h-6 text-emerald-700" /></div></div><p className="text-sm text-emerald-800 font-medium">Total Savings</p><h3 className="text-3xl font-bold text-emerald-900 mt-1">{formatCurrency(totalSavings)}</h3></div>
+        <div className="bg-blue-50 p-6 rounded-2xl shadow-sm border border-blue-100"><div className="flex justify-between items-start mb-4"><div className="p-2 bg-white rounded-lg shadow-sm"><Users className="w-6 h-6 text-blue-700" /></div></div><p className="text-sm text-blue-800 font-medium">Active Groups</p><h3 className="text-3xl font-bold text-blue-900 mt-1">{groups.length}</h3></div>
+        <div className="bg-purple-50 p-6 rounded-2xl shadow-sm border border-purple-100"><div className="flex justify-between items-start mb-4"><div className="p-2 bg-white rounded-lg shadow-sm"><Calendar className="w-6 h-6 text-purple-700" /></div></div><p className="text-sm text-purple-800 font-medium">Next Payout</p><h3 className="text-3xl font-bold text-purple-900 mt-1">{nextPayoutDate}</h3></div>
       </div>
 
-      {/* 3. YOUR GROUPS SECTION */}
       <div>
-        <h2 className="text-xl font-bold text-[#122932] mb-4 flex items-center gap-2">
-            <Users className="w-5 h-5" /> Your Groups
-        </h2>
-        
+        <h2 className="text-xl font-bold text-[#122932] mb-4 flex items-center gap-2"><Users className="w-5 h-5" /> Your Groups</h2>
         {groups.length === 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="md:col-span-2 bg-white p-8 rounded-xl border border-dashed border-slate-300 text-center flex flex-col items-center justify-center">
-                    <div className="bg-slate-50 w-16 h-16 rounded-full flex items-center justify-center mb-4">
-                        <TrendingUp className="h-8 w-8 text-slate-400" />
-                    </div>
-                    <h3 className="text-lg font-medium text-slate-900">No active groups yet</h3>
-                    <p className="text-slate-500 max-w-sm mt-2 mb-6 text-sm">
-                        You aren't in any active savings circles. Create a new Mukando or join an existing one to start saving.
-                    </p>
-                    <Button onClick={() => router.push("/create-group")} className="bg-[#2f6f3e]">
-                        Create First Group
-                    </Button>
-                </div>
-                <div className="bg-[#122932] p-6 rounded-xl text-white flex flex-col justify-center">
-                    <h3 className="font-bold text-lg mb-4">Why join?</h3>
-                    <ul className="space-y-3 text-sm text-slate-300">
-                        <li className="flex gap-2">✅ Access lump sums without loans</li>
-                        <li className="flex gap-2">✅ Build financial discipline</li>
-                        <li className="flex gap-2">✅ 100% Digital & Transparent</li>
-                    </ul>
-                </div>
+                <div className="md:col-span-2 bg-white p-8 rounded-xl border border-dashed border-slate-300 text-center flex flex-col items-center justify-center"><div className="bg-slate-50 w-16 h-16 rounded-full flex items-center justify-center mb-4"><TrendingUp className="h-8 w-8 text-slate-400" /></div><h3 className="text-lg font-medium text-slate-900">No active groups yet</h3><p className="text-slate-500 max-w-sm mt-2 mb-6 text-sm">Join or create a group to start saving.</p><Button onClick={() => router.push("/create-group")} className="bg-[#2f6f3e]">Create First Group</Button></div>
+                <div className="bg-[#122932] p-6 rounded-xl text-white flex flex-col justify-center"><h3 className="font-bold text-lg mb-4">Why join?</h3><ul className="space-y-3 text-sm text-slate-300"><li className="flex gap-2">✅ Access lump sums</li><li className="flex gap-2">✅ Build discipline</li><li className="flex gap-2">✅ 100% Digital</li></ul></div>
             </div>
         ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -309,43 +184,9 @@ export default function DashboardPage() {
                     const colorClass = CARD_COLORS[index % CARD_COLORS.length];
                     return (
                     <Card key={group.id} className={`${colorClass} border-none shadow-lg text-white transition-transform active:scale-[0.98] md:hover:scale-[1.02] duration-200 flex flex-col`}>
-                        <CardHeader className="pb-2">
-                            <div className="flex justify-between items-start">
-                                <CardTitle className="text-lg md:text-xl font-bold truncate pr-2">{group.name}</CardTitle>
-                                <span className="bg-white/20 px-2 py-1 rounded text-xs font-medium backdrop-blur-sm whitespace-nowrap">
-                                    {group.memberCount} Members
-                                </span>
-                            </div>
-                            <CardDescription className="text-slate-200 line-clamp-1 h-5 text-sm">
-                                {group.description || "No description"}
-                            </CardDescription>
-                        </CardHeader>
-                        
-                        <CardContent className="flex-1 space-y-4 pt-4">
-                            <div className="grid grid-cols-2 gap-3">
-                                <div className="bg-white/10 p-3 rounded-lg backdrop-blur-sm">
-                                    <p className="text-xs text-slate-300 flex items-center mb-1">
-                                        <Wallet className="w-3 h-3 mr-1" /> Pool
-                                    </p>
-                                    <p className="text-lg font-bold truncate">{formatCurrency(group.totalPool)}</p>
-                                </div>
-                                <div className="bg-white/10 p-3 rounded-lg backdrop-blur-sm">
-                                    <p className="text-xs text-slate-300 flex items-center mb-1">
-                                        <Users className="w-3 h-3 mr-1" /> My Contr.
-                                    </p>
-                                    <p className="text-lg font-bold truncate">{formatCurrency(group.myContribution)}</p>
-                                </div>
-                            </div>
-                        </CardContent>
-
-                        <CardFooter className="pt-2">
-                            <Button 
-                                onClick={() => router.push(`/group/${group.id}`)} 
-                                className="w-full bg-white text-[#122932] hover:bg-slate-100 font-bold shadow-sm"
-                            >
-                                View Group <ArrowRight className="ml-2 h-4 w-4" />
-                            </Button>
-                        </CardFooter>
+                        <CardHeader className="pb-2"><div className="flex justify-between items-start"><CardTitle className="text-lg md:text-xl font-bold truncate pr-2">{group.name}</CardTitle><span className="bg-white/20 px-2 py-1 rounded text-xs font-medium backdrop-blur-sm whitespace-nowrap">{group.memberCount} Members</span></div><CardDescription className="text-slate-200 line-clamp-1 h-5 text-sm">{group.description || "No description"}</CardDescription></CardHeader>
+                        <CardContent className="flex-1 space-y-4 pt-4"><div className="grid grid-cols-2 gap-3"><div className="bg-white/10 p-3 rounded-lg backdrop-blur-sm"><p className="text-xs text-slate-300 flex items-center mb-1"><Wallet className="w-3 h-3 mr-1" /> Pool</p><p className="text-lg font-bold truncate">{formatCurrency(group.totalPool)}</p></div><div className="bg-white/10 p-3 rounded-lg backdrop-blur-sm"><p className="text-xs text-slate-300 flex items-center mb-1"><Users className="w-3 h-3 mr-1" /> My Contr.</p><p className="text-lg font-bold truncate">{formatCurrency(group.myContribution)}</p></div></div></CardContent>
+                        <CardFooter className="pt-2"><Button onClick={() => router.push(`/group/${group.id}`)} className="w-full bg-white text-[#122932] hover:bg-slate-100 font-bold shadow-sm">View Group <ArrowRight className="ml-2 h-4 w-4" /></Button></CardFooter>
                     </Card>
                     );
                 })}
