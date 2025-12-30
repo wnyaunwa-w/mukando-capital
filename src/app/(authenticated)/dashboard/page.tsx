@@ -29,7 +29,6 @@ import {
 import { getFirebaseApp } from "@/lib/firebase/client";
 import Link from "next/link";
 import { ProfileAlert } from "@/components/profile-alert"; 
-// ✅ IMPORT THE NEW GAUGE COMPONENT
 import { CreditScoreGauge } from "@/components/credit-score-gauge"; 
 
 // --- THE COLOR PALETTE ---
@@ -60,9 +59,10 @@ export default function DashboardPage() {
   // Stats State
   const [totalSavings, setTotalSavings] = useState(0);
   const [nextPayoutDate, setNextPayoutDate] = useState<string>("--/--");
-  
-  // Initialize with default score 400
   const [creditScore, setCreditScore] = useState<number>(400);
+  
+  // ✅ NEW: Track profile completeness based on database, not just Auth
+  const [isProfileComplete, setIsProfileComplete] = useState(true);
 
   useEffect(() => {
     async function fetchData() {
@@ -70,17 +70,28 @@ export default function DashboardPage() {
       const db = getFirestore(getFirebaseApp());
       
       try {
-          // 1. Fetch User Profile (For Credit Score)
+          // 1. Fetch User Profile (For Credit Score & Profile Completeness)
           const userRef = doc(db, "users", user.uid);
-          getDoc(userRef).then((snap) => {
-            if (snap.exists()) {
-                const data = snap.data();
-                // If score is missing, default to 400
-                setCreditScore(data.creditScore !== undefined ? data.creditScore : 400);
-            } else {
-                setCreditScore(400); // Default for new users
-            }
-          });
+          const userSnap = await getDoc(userRef);
+          
+          if (userSnap.exists()) {
+              const data = userSnap.data();
+              setCreditScore(data.creditScore !== undefined ? data.creditScore : 400);
+              
+              // ✅ REAL-TIME CHECK: Check Firestore fields directly
+              // This fixes the issue where Auth object is stale
+              const hasName = data.displayName && data.displayName.trim().length > 0;
+              const hasPhone = data.phoneNumber && data.phoneNumber.trim().length > 0;
+              
+              if (hasName && hasPhone) {
+                  setIsProfileComplete(true);
+              } else {
+                  setIsProfileComplete(false);
+              }
+          } else {
+              setCreditScore(400);
+              setIsProfileComplete(false); // No profile doc = incomplete
+          }
 
           // 2. Fetch Groups
           const myMembershipsQuery = query(
@@ -169,8 +180,8 @@ export default function DashboardPage() {
   return (
     <div className="space-y-8 pb-10">
       
-      {/* ALERT COMPONENT */}
-      <ProfileAlert />
+      {/* ALERT COMPONENT - CONDITIONALLY RENDERED BASED ON FIRESTORE DATA */}
+      {!isProfileComplete && <ProfileAlert />}
 
       {/* 1. WELCOME & ACTIONS */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
@@ -179,7 +190,6 @@ export default function DashboardPage() {
                <h1 className="text-3xl font-bold text-[#122932]">
                  Welcome back, {user?.displayName?.split(" ")[0] || "Saver"}! 👋
                </h1>
-               {/* ✅ REMOVED OLD BADGE FROM HERE */}
            </div>
            <p className="text-slate-500 mt-1">Here is your financial overview.</p>
         </div>
@@ -199,7 +209,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* ✅ NEW: Financial Health Section with Gauge */}
+      {/* FINANCIAL HEALTH */}
       <Card className="border-none shadow-md bg-white">
         <CardHeader>
           <CardTitle className="text-xl font-bold text-[#122932] flex items-center gap-2">
@@ -208,12 +218,10 @@ export default function DashboardPage() {
           <CardDescription>Your Mukando Score is a measure of your reliability and savings history.</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col md:flex-row items-center justify-around gap-8 pt-2 pb-6">
-            {/* The New Gauge Component */}
             <div className="flex-shrink-0 animate-in fade-in zoom-in duration-700">
                 <CreditScoreGauge score={creditScore} />
             </div>
             
-            {/* Contextual Info */}
             <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-4 w-full max-w-2xl">
                 <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 flex gap-3">
                     <HelpCircle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
@@ -235,7 +243,6 @@ export default function DashboardPage() {
 
       {/* 2. STATS OVERVIEW CARDS */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* Total Savings */}
         <div className="bg-emerald-50 p-6 rounded-2xl shadow-sm border border-emerald-100">
           <div className="flex justify-between items-start mb-4">
             <div className="p-2 bg-white rounded-lg shadow-sm">
@@ -246,7 +253,6 @@ export default function DashboardPage() {
           <h3 className="text-3xl font-bold text-emerald-900 mt-1">{formatCurrency(totalSavings)}</h3>
         </div>
 
-        {/* Active Groups */}
         <div className="bg-blue-50 p-6 rounded-2xl shadow-sm border border-blue-100">
           <div className="flex justify-between items-start mb-4">
             <div className="p-2 bg-white rounded-lg shadow-sm">
@@ -257,7 +263,6 @@ export default function DashboardPage() {
           <h3 className="text-3xl font-bold text-blue-900 mt-1">{groups.length}</h3>
         </div>
 
-        {/* Next Payout */}
         <div className="bg-purple-50 p-6 rounded-2xl shadow-sm border border-purple-100">
           <div className="flex justify-between items-start mb-4">
             <div className="p-2 bg-white rounded-lg shadow-sm">
@@ -276,7 +281,6 @@ export default function DashboardPage() {
         </h2>
         
         {groups.length === 0 ? (
-            // EMPTY STATE
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div className="md:col-span-2 bg-white p-8 rounded-xl border border-dashed border-slate-300 text-center flex flex-col items-center justify-center">
                     <div className="bg-slate-50 w-16 h-16 rounded-full flex items-center justify-center mb-4">
@@ -290,7 +294,6 @@ export default function DashboardPage() {
                         Create First Group
                     </Button>
                 </div>
-                {/* TIPS CARD */}
                 <div className="bg-[#122932] p-6 rounded-xl text-white flex flex-col justify-center">
                     <h3 className="font-bold text-lg mb-4">Why join?</h3>
                     <ul className="space-y-3 text-sm text-slate-300">
@@ -301,7 +304,6 @@ export default function DashboardPage() {
                 </div>
             </div>
         ) : (
-            // LIST OF GROUPS
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {groups.map((group, index) => {
                     const colorClass = CARD_COLORS[index % CARD_COLORS.length];
