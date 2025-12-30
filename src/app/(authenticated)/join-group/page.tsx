@@ -9,15 +9,17 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Loader2, ArrowLeft, CheckCircle2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
-// ADDED: updateDoc and increment imports
 import { 
   getFirestore, 
   doc, 
-  getDoc, 
   setDoc, 
   updateDoc, 
   increment, 
-  serverTimestamp 
+  serverTimestamp,
+  collection,   // ✅ Added
+  query,        // ✅ Added
+  where,        // ✅ Added
+  getDocs       // ✅ Added
 } from "firebase/firestore";
 import { getFirebaseApp } from "@/lib/firebase/client";
 
@@ -33,38 +35,45 @@ export default function JoinGroupPage() {
     if (!user || !code) return;
     
     // Clean the code (remove spaces, uppercase)
-    const groupId = code.trim().toUpperCase(); 
+    const inputInviteCode = code.trim().toUpperCase(); 
 
     setLoading(true);
     const db = getFirestore(getFirebaseApp());
 
     try {
-      // 1. Check if group exists
-      let targetGroupId = groupId;
-      
-      const groupRef = doc(db, "groups", targetGroupId);
-      const groupSnap = await getDoc(groupRef);
+      // 1. QUERY to find group by Invite Code (Instead of ID)
+      const groupsRef = collection(db, "groups");
+      const q = query(groupsRef, where("inviteCode", "==", inputInviteCode));
+      const querySnapshot = await getDocs(q);
 
-      if (!groupSnap.exists()) {
-        throw new Error("Group not found. Please check the code.");
+      if (querySnapshot.empty) {
+        throw new Error("Invalid Invite Code. No group found.");
       }
 
-      const groupData = groupSnap.data();
+      // Get the actual Group Document ID
+      const groupDoc = querySnapshot.docs[0];
+      const targetGroupId = groupDoc.id; // This is the Long ID needed for updates
+      const groupData = groupDoc.data();
+
+      // Check if user is already a member (Optional optimization)
+      // We rely on 'merge: true' below so it won't break anything if they rejoin
 
       // 2. Add User to Members Subcollection
       const memberRef = doc(db, "groups", targetGroupId, "members", user.uid);
       
       await setDoc(memberRef, {
-        userId: user.uid,
+        userId: user.uid, // ✅ Critical for Dashboard Query
         displayName: user.displayName || "Member",
         photoURL: user.photoURL || null,
-        role: "member", // Default role
+        role: "member",
         joinedAt: serverTimestamp(),
         contributionBalanceCents: 0,
-        email: user.email
+        email: user.email,
+        subscriptionStatus: 'unpaid' // Initialize status
       }, { merge: true });
 
-      // 3. NEW: Increment the Group's member count
+      // 3. Increment the Group's member count
+      const groupRef = doc(db, "groups", targetGroupId);
       await updateDoc(groupRef, {
         membersCount: increment(1)
       });
@@ -74,8 +83,8 @@ export default function JoinGroupPage() {
         description: `You have joined ${groupData.name || "the group"}.` 
       });
 
-      // 4. Redirect to Dashboard
-      router.push("/dashboard");
+      // 4. Redirect to Dashboard (or the specific group page)
+      router.push(`/group/${targetGroupId}`);
 
     } catch (error: any) {
       console.error(error);
@@ -99,33 +108,30 @@ export default function JoinGroupPage() {
         <ArrowLeft className="mr-2 h-4 w-4" /> Back
       </Button>
 
-      {/* --- COLORED CARD (Blue Slate) --- */}
       <Card className="bg-[#576066] border-none text-white shadow-xl">
         <CardHeader>
           <CardTitle className="text-2xl font-bold">Join a Group</CardTitle>
           <CardDescription className="text-slate-200">
-            Enter the invite code shared with you to access the group.
+            Enter the 6-character invite code shared with you.
           </CardDescription>
         </CardHeader>
         <form onSubmit={handleJoin}>
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <label htmlFor="code" className="text-sm font-medium text-slate-100">
-                Group Code / ID
+                Group Invite Code
               </label>
               <Input 
                 id="code"
-                placeholder="e.g. D54HSN" 
+                placeholder="e.g. VUYKM8" 
                 value={code} 
                 onChange={(e) => setCode(e.target.value)}
-                // Keep input white for readability
                 className="bg-white text-slate-900 uppercase tracking-widest text-center text-lg h-12 font-bold border-white/20"
                 required
               />
             </div>
           </CardContent>
           <CardFooter>
-            {/* Button is now White with Blue text to pop against the background */}
             <Button 
               type="submit" 
               className="w-full bg-white text-[#576066] hover:bg-slate-100 font-bold h-12 text-lg shadow-sm" 

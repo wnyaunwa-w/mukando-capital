@@ -152,6 +152,7 @@ export default function CreateGroupPage() {
         ownerId: user.uid,
         inviteCode: inviteCode,
         memberIds: [user.uid],
+        membersCount: 1, // ✅ ADDED: Initialize count
         status: 'active'
       };
       
@@ -159,6 +160,7 @@ export default function CreateGroupPage() {
 
       const memberDocRef = doc(db, 'groups', groupRef.id, 'members', user.uid);
       batch.set(memberDocRef, {
+        userId: user.uid, // ✅ CRITICAL FIX: Required for dashboard query
         name: user.displayName || user.email?.split('@')[0],
         avatarUrl: user.photoURL || `https://i.pravatar.cc/150?u=${user.uid}`,
         balanceCents: 0,
@@ -211,19 +213,16 @@ export default function CreateGroupPage() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 pb-20">
             {CATEGORIES.map((cat) => (
-              // UPDATED CARD STYLING
               <Card
                 key={cat.id}
                 className={cn(
                   "cursor-pointer transition-all hover:scale-[1.02] hover:shadow-md border",
-                  cat.color // Apply the colored background, text, and border here
+                  cat.color 
                 )}
                 onClick={() => handleCategorySelect(cat)}
               >
                 <CardContent className="p-6 flex flex-col items-start gap-4">
-                  {/* Make icon container white so it pops against colored bg */}
                   <div className="p-3 rounded-xl bg-white shadow-sm"> 
-                    {/* Re-apply just the text color to the icon */}
                     <cat.icon className={cn("h-6 w-6", cat.color.split(' ')[1])} />
                   </div>
                   <div>
