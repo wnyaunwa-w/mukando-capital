@@ -9,11 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { 
-  ShieldAlert, Loader2, Plus, Minus, Banknote, ArrowLeft, Download, Trash2, Ban, CheckCircle, MoreHorizontal
+  ShieldAlert, Loader2, Plus, Minus, Banknote, ArrowLeft, Trash2
 } from "lucide-react";
-import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrency } from "@/lib/utils";
 import { 
@@ -37,17 +34,23 @@ export default function SuperAdminPage() {
   const router = useRouter();
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
+  
+  // Data State
   const [feeRequests, setFeeRequests] = useState<FeeRequest[]>([]);
   const [groupsList, setGroupsList] = useState<AdminGroup[]>([]);
   const [usersList, setUsersList] = useState<AdminUser[]>([]);
+  
+  // Stats
   const [stats, setStats] = useState({ totalGroups: 0, totalVolumeCents: 0, activeSubs: 0, totalEarningsCents: 0 });
   const [platformFeeCents, setPlatformFeeCents] = useState(100);
   const [savingFee, setSavingFee] = useState(false);
+  
   const db = getFirestore(getFirebaseApp());
 
   useEffect(() => {
     const fetchData = async () => {
       try {
+        // Groups
         const groupsSnap = await getDocs(collection(db, "groups"));
         const groupsData: AdminGroup[] = [];
         let volume = 0;
@@ -57,6 +60,7 @@ export default function SuperAdminPage() {
         });
         setGroupsList(groupsData);
 
+        // Users
         const usersSnap = await getDocs(collection(db, "users"));
         const usersData: AdminUser[] = [];
         usersSnap.forEach(doc => {
@@ -68,6 +72,7 @@ export default function SuperAdminPage() {
         });
         setUsersList(usersData);
 
+        // Fees
         const qFees = query(collection(db, "fee_requests"), orderBy("createdAt", "desc"));
         const feesSnap = await getDocs(qFees);
         const requests: FeeRequest[] = [];
@@ -80,6 +85,7 @@ export default function SuperAdminPage() {
 
         setStats({ totalGroups: groupsSnap.size, totalVolumeCents: volume, activeSubs: approvedCount, totalEarningsCents: earnings });
 
+        // Settings
         const settingsSnap = await getDoc(doc(db, "settings", "global"));
         if (settingsSnap.exists()) {
             const d = settingsSnap.data();
@@ -89,6 +95,8 @@ export default function SuperAdminPage() {
     };
     fetchData();
   }, []);
+
+  // --- ACTIONS ---
 
   const handleFeeAction = async (req: FeeRequest, action: 'approved' | 'rejected') => {
     try {
@@ -108,6 +116,35 @@ export default function SuperAdminPage() {
         await setDoc(doc(db, "settings", "global"), { platformFeeCents }, { merge: true });
         toast({ title: "Saved", description: platformFeeCents === 0 ? "Platform is FREE" : "Fee updated" });
     } catch (e) { toast({ variant: "destructive", title: "Error" }); } finally { setSavingFee(false); }
+  };
+
+  // ✅ FIXED: Delete Group Logic
+  const deleteGroup = async (groupId: string) => {
+    if (!window.confirm("Are you sure you want to delete this group? This cannot be undone.")) return;
+    try {
+        await deleteDoc(doc(db, "groups", groupId));
+        // Update UI immediately
+        setGroupsList(prev => prev.filter(g => g.id !== groupId));
+        setStats(prev => ({ ...prev, totalGroups: prev.totalGroups - 1 }));
+        toast({ title: "Group Deleted" });
+    } catch (error) {
+        console.error(error);
+        toast({ variant: "destructive", title: "Delete Failed", description: "Check permissions." });
+    }
+  };
+
+  // ✅ FIXED: Delete User Logic
+  const deleteUser = async (userId: string) => {
+    if (!window.confirm("Are you sure you want to delete this user?")) return;
+    try {
+        await deleteDoc(doc(db, "users", userId));
+        // Update UI immediately
+        setUsersList(prev => prev.filter(u => u.uid !== userId));
+        toast({ title: "User Deleted" });
+    } catch (error) {
+        console.error(error);
+        toast({ variant: "destructive", title: "Delete Failed", description: "Check permissions." });
+    }
   };
 
   const pendingRequests = feeRequests.filter(r => r.status === 'pending');
@@ -138,9 +175,65 @@ export default function SuperAdminPage() {
 
       <Tabs defaultValue="fees" className="w-full">
         <div className="overflow-x-auto pb-2 -mx-1 px-1"><TabsList className="bg-white border w-full justify-start min-w-[350px]"><TabsTrigger value="fees">Fees {pendingRequests.length > 0 && <Badge className="ml-2 bg-red-600">{pendingRequests.length}</Badge>}</TabsTrigger><TabsTrigger value="groups">Groups</TabsTrigger><TabsTrigger value="users">Users</TabsTrigger><TabsTrigger value="scores">Scores</TabsTrigger></TabsList></div>
-        <TabsContent value="fees" className="space-y-4"><Card><CardHeader className="px-4 py-4"><CardTitle className="text-lg">Pending</CardTitle></CardHeader><CardContent className="px-4 pb-4">{pendingRequests.length === 0 ? <div className="text-center py-8 text-slate-500">No requests</div> : pendingRequests.map(req => <div key={req.id} className="flex justify-between items-center p-3 border rounded mb-2"><div><div className="font-bold">{req.userDisplayName}</div><div className="text-sm font-mono">{req.refNumber}</div></div><div className="flex gap-2"><Button size="sm" variant="ghost" className="text-red-600" onClick={() => handleFeeAction(req, 'rejected')}>Reject</Button><Button size="sm" className="bg-green-700" onClick={() => handleFeeAction(req, 'approved')}>Approve</Button></div></div>)}</CardContent></Card></TabsContent>
-        <TabsContent value="groups"><Card><CardHeader className="px-4 py-4"><CardTitle className="text-lg">Groups</CardTitle></CardHeader><CardContent className="p-0"><div className="overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-slate-100 border-b"><tr><th className="p-3">Name</th><th className="p-3">Status</th><th className="p-3">Action</th></tr></thead><tbody>{groupsList.map(g => <tr key={g.id} className="border-b"><td className="p-3">{g.name}</td><td className="p-3"><Badge variant="outline">{g.status}</Badge></td><td className="p-3"><Button size="sm" variant="ghost" onClick={() => deleteDoc(doc(db, "groups", g.id))}><Trash2 className="h-4 w-4 text-red-500" /></Button></td></tr>)}</tbody></table></div></CardContent></Card></TabsContent>
-        <TabsContent value="users"><Card><CardHeader className="px-4 py-4"><CardTitle className="text-lg">Users</CardTitle></CardHeader><CardContent className="p-0"><div className="overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-slate-100 border-b"><tr><th className="p-3">Name</th><th className="p-3">Email</th><th className="p-3">Action</th></tr></thead><tbody>{usersList.map(u => <tr key={u.uid} className="border-b"><td className="p-3">{u.displayName}</td><td className="p-3">{u.email}</td><td className="p-3"><Button size="sm" variant="ghost" onClick={() => deleteDoc(doc(db, "users", u.uid))}><Trash2 className="h-4 w-4 text-red-500" /></Button></td></tr>)}</tbody></table></div></CardContent></Card></TabsContent>
+        
+        <TabsContent value="fees" className="space-y-4">
+            <Card><CardHeader className="px-4 py-4"><CardTitle className="text-lg">Pending</CardTitle></CardHeader><CardContent className="px-4 pb-4">{pendingRequests.length === 0 ? <div className="text-center py-8 text-slate-500">No requests</div> : pendingRequests.map(req => <div key={req.id} className="flex justify-between items-center p-3 border rounded mb-2"><div><div className="font-bold">{req.userDisplayName}</div><div className="text-sm font-mono">{req.refNumber}</div></div><div className="flex gap-2"><Button size="sm" variant="ghost" className="text-red-600" onClick={() => handleFeeAction(req, 'rejected')}>Reject</Button><Button size="sm" className="bg-green-700" onClick={() => handleFeeAction(req, 'approved')}>Approve</Button></div></div>)}</CardContent></Card>
+        </TabsContent>
+        
+        <TabsContent value="groups">
+            <Card>
+                <CardHeader className="px-4 py-4"><CardTitle className="text-lg">Groups</CardTitle></CardHeader>
+                <CardContent className="p-0">
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-sm text-left">
+                            <thead className="bg-slate-100 border-b"><tr><th className="p-3">Name</th><th className="p-3">Status</th><th className="p-3">Action</th></tr></thead>
+                            <tbody>
+                                {groupsList.map(g => (
+                                    <tr key={g.id} className="border-b">
+                                        <td className="p-3">{g.name}</td>
+                                        <td className="p-3"><Badge variant="outline">{g.status}</Badge></td>
+                                        {/* ✅ Connected deleteGroup function */}
+                                        <td className="p-3">
+                                            <Button size="sm" variant="ghost" onClick={() => deleteGroup(g.id)}>
+                                                <Trash2 className="h-4 w-4 text-red-500" />
+                                            </Button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </CardContent>
+            </Card>
+        </TabsContent>
+        
+        <TabsContent value="users">
+            <Card>
+                <CardHeader className="px-4 py-4"><CardTitle className="text-lg">Users</CardTitle></CardHeader>
+                <CardContent className="p-0">
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-sm text-left">
+                            <thead className="bg-slate-100 border-b"><tr><th className="p-3">Name</th><th className="p-3">Email</th><th className="p-3">Action</th></tr></thead>
+                            <tbody>
+                                {usersList.map(u => (
+                                    <tr key={u.uid} className="border-b">
+                                        <td className="p-3">{u.displayName}</td>
+                                        <td className="p-3">{u.email}</td>
+                                        {/* ✅ Connected deleteUser function */}
+                                        <td className="p-3">
+                                            <Button size="sm" variant="ghost" onClick={() => deleteUser(u.uid)}>
+                                                <Trash2 className="h-4 w-4 text-red-500" />
+                                            </Button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </CardContent>
+            </Card>
+        </TabsContent>
+        
         <TabsContent value="scores"><GlobalScoreboard /></TabsContent>
       </Tabs>
     </div>
