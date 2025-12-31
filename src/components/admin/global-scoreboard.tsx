@@ -9,7 +9,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow 
 } from "@/components/ui/table";
 import { 
-  Download, Loader2, Search, Trophy, Shield, ShieldCheck, Medal 
+  Download, Loader2, Search, Trophy 
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { getFirestore, collection, getDocs, query, orderBy } from "firebase/firestore";
@@ -31,12 +31,14 @@ export function GlobalScoreboard() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
 
-  // --- 1. HELPER: CALCULATE TIER ---
+  // --- 1. HELPER: CALCULATE TIER (Updated Logic) ---
   const getTier = (score: number) => {
-    if (score >= 750) return "Excellent";
-    if (score >= 650) return "Good";
-    if (score >= 500) return "Fair";
-    return "Low";
+    if (score >= 800) return "Perfect";
+    if (score >= 700) return "Excellent";
+    if (score >= 500) return "Very Good";
+    if (score >= 400) return "Good";
+    if (score >= 300) return "Low";
+    return "Bad";
   };
 
   // --- 2. FETCH ALL DATA ---
@@ -44,15 +46,13 @@ export function GlobalScoreboard() {
     const fetchData = async () => {
       const db = getFirestore(getFirebaseApp());
       try {
-        // Fetch all users
         const usersRef = collection(db, "users");
-        // Ordering by creditScore descending to show top performers first
         const q = query(usersRef, orderBy("creditScore", "desc"));
         const snapshot = await getDocs(q);
 
         const records = snapshot.docs.map(doc => {
           const data = doc.data();
-          const score = data.creditScore || 400; // Default if missing
+          const score = data.creditScore !== undefined ? data.creditScore : 400; // Default 400
           return {
             id: doc.id,
             name: data.displayName || "Unknown Member",
@@ -77,12 +77,9 @@ export function GlobalScoreboard() {
 
   // --- 3. EXPORT TO CSV ---
   const exportCSV = () => {
-    // Define Headers
     const headers = ["Name", "Phone", "Email", "Mukando Score", "Tier", "Joined Date"];
-    
-    // Map Data to CSV Rows
     const rows = users.map(user => [
-      `"${user.name}"`, // Quote strings to handle commas in names
+      `"${user.name}"`, 
       `"${user.phone}"`,
       `"${user.email}"`,
       user.score,
@@ -90,13 +87,7 @@ export function GlobalScoreboard() {
       user.joinedAt
     ]);
 
-    // Combine Headers and Rows
-    const csvContent = [
-      headers.join(","), 
-      ...rows.map(row => row.join(","))
-    ].join("\n");
-
-    // Create Blob and Trigger Download
+    const csvContent = [headers.join(","), ...rows.map(row => row.join(","))].join("\n");
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement("a");
     const url = URL.createObjectURL(blob);
@@ -108,11 +99,23 @@ export function GlobalScoreboard() {
     document.body.removeChild(link);
   };
 
-  // Filter for Search
+  // Filter
   const filteredUsers = users.filter(u => 
     u.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     u.email.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  // Helper for Badge Colors
+  const getBadgeClass = (tier: string) => {
+    switch(tier) {
+        case "Perfect": return "bg-amber-100 text-amber-700 border-amber-200";
+        case "Excellent": return "bg-purple-100 text-purple-700 border-purple-200";
+        case "Very Good": return "bg-blue-100 text-blue-700 border-blue-200";
+        case "Good": return "bg-emerald-100 text-emerald-700 border-emerald-200";
+        case "Low": return "bg-orange-100 text-orange-700 border-orange-200";
+        default: return "bg-red-100 text-red-700 border-red-200"; // Bad
+    }
+  };
 
   return (
     <Card className="w-full shadow-md border-slate-200">
@@ -181,12 +184,7 @@ export function GlobalScoreboard() {
                                         {user.score}
                                     </TableCell>
                                     <TableCell>
-                                        <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-bold border ${
-                                            user.tier === 'Excellent' ? 'bg-blue-50 text-blue-700 border-blue-200' :
-                                            user.tier === 'Good' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
-                                            user.tier === 'Fair' ? 'bg-amber-50 text-amber-700 border-amber-200' :
-                                            'bg-red-50 text-red-700 border-red-200'
-                                        }`}>
+                                        <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-bold border ${getBadgeClass(user.tier)}`}>
                                             {user.tier}
                                         </span>
                                     </TableCell>
