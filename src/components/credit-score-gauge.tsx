@@ -1,87 +1,109 @@
+"use client";
+
+import React from "react";
 import { cn } from "@/lib/utils";
 
 interface CreditScoreGaugeProps {
   score: number;
-  maxScore?: number;
 }
 
-export function CreditScoreGauge({ score, maxScore = 800 }: CreditScoreGaugeProps) {
-  // 1. Determine Tier and Color Theme based on score out of 800
-  let tier = "Low";
-  let colorClass = "text-red-500";
-  let bgColorClass = "bg-red-100";
-  let borderColorClass = "border-red-200";
+export function CreditScoreGauge({ score }: CreditScoreGaugeProps) {
+  // --- CONFIGURATION BASED ON YOUR NEW RULES ---
+  const getConfig = (s: number) => {
+    if (s >= 800) return { 
+        label: "PERFECT", 
+        color: "text-amber-500", 
+        stroke: "stroke-amber-500", 
+        bg: "bg-amber-100", 
+        badgeText: "text-amber-700" 
+    };
+    if (s >= 700) return { 
+        label: "EXCELLENT", 
+        color: "text-purple-600", 
+        stroke: "stroke-purple-600", 
+        bg: "bg-purple-100", 
+        badgeText: "text-purple-700" 
+    };
+    if (s >= 500) return { 
+        label: "VERY GOOD", 
+        color: "text-blue-600", 
+        stroke: "stroke-blue-600", 
+        bg: "bg-blue-100", 
+        badgeText: "text-blue-700" 
+    };
+    if (s >= 400) return { 
+        label: "GOOD", 
+        color: "text-emerald-500", // Green
+        stroke: "stroke-emerald-500", 
+        bg: "bg-emerald-100", 
+        badgeText: "text-emerald-700" 
+    };
+    if (s >= 300) return { 
+        label: "LOW", 
+        color: "text-orange-500", 
+        stroke: "stroke-orange-500", 
+        bg: "bg-orange-100", 
+        badgeText: "text-orange-700" 
+    };
+    return { 
+        label: "BAD", 
+        color: "text-red-500", 
+        stroke: "stroke-red-500", 
+        bg: "bg-red-100", 
+        badgeText: "text-red-700" 
+    };
+  };
 
-  if (score >= 750) {
-    tier = "Excellent";
-    colorClass = "text-blue-600";
-    bgColorClass = "bg-blue-100";
-    borderColorClass = "border-blue-200";
-  } else if (score >= 650) {
-    tier = "Good";
-    colorClass = "text-emerald-600";
-    bgColorClass = "bg-emerald-100";
-    borderColorClass = "border-emerald-200";
-  } else if (score >= 500) {
-    tier = "Fair";
-    colorClass = "text-amber-600";
-    bgColorClass = "bg-amber-100";
-    borderColorClass = "border-amber-200";
-  }
-
-  // 2. Calculate SVG Progress
-  // We use a radius of 45 within a 100x100 viewBox
-  const radius = 45;
+  const config = getConfig(score);
+  
+  // Calculate SVG Circle properties
+  const radius = 50;
   const circumference = 2 * Math.PI * radius;
-  // Ensure score doesn't exceed maxScore for calculation
-  const clampedScore = Math.min(Math.max(score, 0), maxScore);
-  const progressPercentage = (clampedScore / maxScore);
-  // Calculate the offset to hide the part of the circle that isn't filled
-  const dashOffset = circumference * (1 - progressPercentage);
+  // Max score is 800 for the visual calculation
+  const percentage = Math.min(Math.max(score / 800, 0), 1);
+  const offset = circumference - percentage * circumference;
 
   return (
-    <div className="flex flex-col items-center justify-center">
-      {/* Circular Gauge Container */}
-      <div className="relative w-40 h-40">
-        <svg className="w-full h-full" viewBox="0 0 100 100">
-          {/* Background Circle (Gray track) */}
+    <div className="flex flex-col items-center justify-center relative">
+      <div className="relative h-40 w-40 flex items-center justify-center">
+        {/* Background Circle */}
+        <svg className="h-full w-full -rotate-90 transform" viewBox="0 0 120 120">
           <circle
-            className="text-slate-200 stroke-current"
-            strokeWidth="8"
-            cx="50"
-            cy="50"
-            r={radius}
+            className="text-slate-100"
+            strokeWidth="12"
+            stroke="currentColor"
             fill="transparent"
+            r="50"
+            cx="60"
+            cy="60"
           />
-          {/* Progress Arc (Colored) */}
-          {/* rotate(-90 50 50) starts the progress from the top */}
+          {/* Progress Circle */}
           <circle
-            className={cn("stroke-current transition-all duration-1000 ease-out", colorClass)}
-            strokeWidth="8"
-            strokeLinecap="round"
-            cx="50"
-            cy="50"
-            r={radius}
-            fill="transparent"
+            className={cn("transition-all duration-1000 ease-out", config.stroke)}
+            strokeWidth="12"
             strokeDasharray={circumference}
-            strokeDashoffset={dashOffset}
-            transform="rotate(-90 50 50)"
+            strokeDashoffset={offset}
+            strokeLinecap="round"
+            stroke="currentColor"
+            fill="transparent"
+            r="50"
+            cx="60"
+            cy="60"
           />
         </svg>
-        {/* Center Text */}
+
+        {/* Text in Middle */}
         <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className={cn("text-4xl font-bold leading-none", colorClass)}>
+          <span className={cn("text-4xl font-bold transition-colors", config.color)}>
             {score}
           </span>
-          <span className="text-sm text-slate-500 font-medium mt-1">
-            out of {maxScore}
-          </span>
+          <span className="text-xs text-slate-400 font-medium">out of 800</span>
         </div>
       </div>
 
-      {/* Tier Label (`Low`, `Fair`, etc.) */}
-      <div className={cn("mt-3 px-4 py-1.5 rounded-full text-sm font-bold border uppercase tracking-wider", bgColorClass, colorClass, borderColorClass)}>
-        {tier}
+      {/* Status Badge */}
+      <div className={cn("mt-4 px-4 py-1.5 rounded-full text-xs font-bold tracking-wider shadow-sm", config.bg, config.badgeText)}>
+        {config.label}
       </div>
     </div>
   );
