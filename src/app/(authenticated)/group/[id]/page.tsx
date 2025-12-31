@@ -89,19 +89,13 @@ function GroupContent() {
   const [currentMember, setCurrentMember] = useState<ExtendedMember | null>(null);
   const [platformFee, setPlatformFee] = useState(100); 
   const [nextPayoutProfile, setNextPayoutProfile] = useState<{ photoURL: string | null, displayName: string } | null>(null);
-  
-  // User Global Profile (for Credit Score)
   const [userProfile, setUserProfile] = useState<{ creditScore?: number } | null>(null);
 
   // Dialog States
   const [isClaimOpen, setIsClaimOpen] = useState(false);
   const [isPayFeeOpen, setIsPayFeeOpen] = useState(false);
   const [isPayoutOpen, setIsPayoutOpen] = useState(false);
-
-  // Pending Payout State
   const [pendingPayout, setPendingPayout] = useState<any | null>(null);
-
-  // Next Due Date Display
   const [nextDueDateDisplay, setNextDueDateDisplay] = useState<string | null>(null);
 
   useEffect(() => {
@@ -114,25 +108,15 @@ function GroupContent() {
         const gData = { id: docSnap.id, ...docSnap.data() } as Group;
         setGroup(gData);
 
-        // --- CALCULATE NEXT PAYMENT DUE DATE ---
+        // Calculate Next Payment Due Date
         if ((gData as any).paymentDueDay) {
             const dueDay = (gData as any).paymentDueDay;
             const today = new Date();
-            const currentDay = today.getDate();
-            const currentMonth = today.getMonth();
-            const currentYear = today.getFullYear();
-
-            let targetDate = new Date(currentYear, currentMonth, dueDay);
-            
-            // If we already passed this month's deadline, move to next month
-            if (currentDay > dueDay) {
-                targetDate = new Date(currentYear, currentMonth + 1, dueDay);
+            let targetDate = new Date(today.getFullYear(), today.getMonth(), dueDay);
+            if (today.getDate() > dueDay) {
+                targetDate = new Date(today.getFullYear(), today.getMonth() + 1, dueDay);
             }
-
-            const formattedDate = targetDate.toLocaleDateString('en-GB', { 
-                day: 'numeric', month: 'short', year: 'numeric' 
-            });
-            setNextDueDateDisplay(formattedDate);
+            setNextDueDateDisplay(targetDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }));
         } else {
             setNextDueDateDisplay(null);
         }
@@ -162,16 +146,15 @@ function GroupContent() {
       }
     });
 
-    // 2. Member Data (Group Specific)
+    // 2. Member Data
     const unsubMember = onSnapshot(doc(db, "groups", id, "members", user.uid), (docSnap) => {
       if (docSnap.exists()) setCurrentMember({ userId: docSnap.id, ...docSnap.data() } as ExtendedMember);
     });
 
-    // 3. Global User Data (For Credit Score)
+    // 3. Global User Data
     const unsubUserGlobal = onSnapshot(doc(db, "users", user.uid), (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
-        // Default to 400 if undefined
         setUserProfile({ creditScore: data.creditScore !== undefined ? data.creditScore : 400 });
       } else {
         setUserProfile({ creditScore: 400 });
@@ -185,7 +168,6 @@ function GroupContent() {
         where("type", "==", "payout"),
         where("status", "==", "pending_confirmation")
     );
-
     const unsubPayouts = onSnapshot(payoutQuery, (snapshot) => {
         if (!snapshot.empty) {
             const payoutDoc = snapshot.docs[0];
@@ -195,11 +177,10 @@ function GroupContent() {
         }
     });
 
-    // 5. Global Settings (✅ FIXED LOGIC)
+    // 5. Global Settings
     const unsubSettings = onSnapshot(doc(db, "settings", "global"), (docSnap) => {
         if (docSnap.exists()) {
             const data = docSnap.data();
-            // Check strictly for undefined, allowing 0 to pass through
             const fee = data.platformFeeCents !== undefined ? data.platformFeeCents : 100;
             setPlatformFee(fee);
         }
@@ -237,11 +218,8 @@ function GroupContent() {
         batch.update(txRef, { status: "completed" });
         const groupRef = doc(db, "groups", group.id);
         batch.update(groupRef, { currentBalanceCents: increment(-pendingPayout.amountCents) });
-        
-        // Bonus points
         const userRef = doc(db, "users", user.uid);
         batch.update(userRef, { creditScore: increment(5) });
-
         await batch.commit();
         toast({ title: "Success", description: "Payment receipt confirmed. (+5 Trust Points)" });
     } catch (e) {
@@ -257,16 +235,22 @@ function GroupContent() {
   };
   const categoryStyle = getCategoryStyle();
 
+  // ✅ HELPER: Get the correct invite code (fallback to ID substring for old groups)
+  const getInviteCode = () => {
+      if (!group) return "";
+      return (group as any).inviteCode || group.id.substring(0,6).toUpperCase();
+  }
+
   const shareToWhatsApp = () => {
     if (!group) return;
-    const inviteCode = group.id.substring(0,6).toUpperCase();
+    const inviteCode = getInviteCode();
     const text = `Join my savings circle "${group.name}" on Mukando Capital!\n\nUse Invite Code: *${inviteCode}*\n\nOr click here to join: https://www.mukandocapital.com/join-group`;
     window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
   };
 
   const copyCode = () => {
     if (group?.id) { 
-        navigator.clipboard.writeText(group.id.substring(0,6).toUpperCase()); 
+        navigator.clipboard.writeText(getInviteCode()); 
         toast({ title: "Copied!", description: "Invite code copied." }); 
     }
   }
@@ -276,7 +260,6 @@ function GroupContent() {
       window.open(`https://wa.me/${SUPER_ADMIN_PHONE}?text=${encodeURIComponent(message)}`, '_blank');
   }
 
-  // ✅ HELPER: Render Button Text Logic
   const renderFeeButtonText = () => {
       if (isPending) return "Payment Under Review";
       if (platformFee === 0) return "Activate Access (Free)";
@@ -312,7 +295,8 @@ function GroupContent() {
                 <div className="flex items-center gap-3 mt-3">
                     <div className="flex items-center gap-2 bg-slate-100 border border-slate-200 px-3 py-1 rounded-md">
                         <span className="text-xs font-bold text-slate-500 uppercase">Code:</span>
-                        <span className="font-mono font-bold text-[#2C514C] tracking-wider text-sm">{group.id.substring(0,6).toUpperCase()}</span>
+                        {/* ✅ FIXED: Use getInviteCode() instead of ID substring */}
+                        <span className="font-mono font-bold text-[#2C514C] tracking-wider text-sm">{getInviteCode()}</span>
                     </div>
                     <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-slate-400 hover:text-[#2C514C]" onClick={copyCode}><Copy className="h-4 w-4" /></Button>
                 </div>
@@ -346,33 +330,17 @@ function GroupContent() {
 
       {/* STATS CARDS */}
       <div className={`grid grid-cols-1 md:grid-cols-3 gap-4 ${isLocked ? 'opacity-50 pointer-events-none blur-sm' : ''}`}>
-        
-        {/* CARD 1: TOTAL BALANCE */}
         <Card className="bg-[#2C514C] text-white border-none shadow-lg w-full">
             <CardHeader className="py-4"><CardTitle className="text-slate-200 text-sm uppercase">Total Balance</CardTitle></CardHeader>
             <CardContent className="pb-4 pt-0"><div className="text-3xl font-bold text-white truncate">{formatCurrency(group.currentBalanceCents || 0)}</div></CardContent>
         </Card>
-
-        {/* CARD 2: MY CONTRIBUTION & SCORE (UPDATED) */}
         <Card className="bg-[#576066] text-white border-none shadow-lg w-full">
-            <CardHeader className="py-4 flex flex-row items-center justify-between">
-                <CardTitle className="text-slate-200 text-sm uppercase">My Contribution</CardTitle>
-                {userProfile?.creditScore !== undefined && <CreditScoreBadge score={userProfile.creditScore} />}
-            </CardHeader>
+            <CardHeader className="py-4 flex flex-row items-center justify-between"><CardTitle className="text-slate-200 text-sm uppercase">My Contribution</CardTitle>{userProfile?.creditScore !== undefined && <CreditScoreBadge score={userProfile.creditScore} />}</CardHeader>
             <CardContent className="pb-4 pt-0">
                 <div className="text-3xl font-bold text-white truncate">{formatCurrency(currentMember?.contributionBalanceCents || 0)}</div>
-                
-                {/* NEXT DUE DATE DISPLAY */}
-                {nextDueDateDisplay && (
-                    <div className="mt-2 flex items-center gap-1.5 text-xs text-slate-300 font-medium bg-white/10 px-2 py-1 rounded w-fit">
-                        <CalendarClock className="w-3.5 h-3.5" />
-                        <span>Next Due: {nextDueDateDisplay}</span>
-                    </div>
-                )}
+                {nextDueDateDisplay && (<div className="mt-2 flex items-center gap-1.5 text-xs text-slate-300 font-medium bg-white/10 px-2 py-1 rounded w-fit"><CalendarClock className="w-3.5 h-3.5" /><span>Next Due: {nextDueDateDisplay}</span></div>)}
             </CardContent>
         </Card>
-
-        {/* CARD 3: NEXT PAYOUT */}
         <Card className="bg-[#122932] text-white border-none shadow-lg w-full">
             <CardHeader className="py-4"><CardTitle className="text-slate-200 text-sm uppercase">Next Payout</CardTitle></CardHeader>
             <CardContent className="pb-4 pt-0">
@@ -381,17 +349,7 @@ function GroupContent() {
                 const nextPerson = schedule.find((m: any) => m.status === 'pending');
                 if (nextPerson) {
                   const displayProfile = nextPayoutProfile || { photoURL: nextPerson.photoURL, displayName: nextPerson.displayName };
-                  return (
-                    <div className="flex items-center gap-3">
-                      <div className="h-10 w-10 flex-shrink-0 rounded-full bg-white/10 flex items-center justify-center font-bold text-white border border-white/20 overflow-hidden">
-                          {displayProfile.photoURL ? <img src={displayProfile.photoURL} className="h-full w-full object-cover"/> : (displayProfile.displayName?.charAt(0) || "?")}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                          <div className="font-bold truncate text-white text-lg">{displayProfile.displayName}</div>
-                          <div className="text-xs text-green-400 font-medium">Due: {nextPerson.payoutDate}</div>
-                      </div>
-                    </div>
-                  );
+                  return (<div className="flex items-center gap-3"><div className="h-10 w-10 flex-shrink-0 rounded-full bg-white/10 flex items-center justify-center font-bold text-white border border-white/20 overflow-hidden">{displayProfile.photoURL ? <img src={displayProfile.photoURL} className="h-full w-full object-cover"/> : (displayProfile.displayName?.charAt(0) || "?")}</div><div className="min-w-0 flex-1"><div className="font-bold truncate text-white text-lg">{displayProfile.displayName}</div><div className="text-xs text-green-400 font-medium">Due: {nextPerson.payoutDate}</div></div></div>);
                 }
                 return <div className="text-sm text-slate-400 py-2">No upcoming payout.</div>;
              })()}
@@ -402,49 +360,22 @@ function GroupContent() {
       {/* ACTION BUTTONS */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         <Button className="bg-[#2C514C] hover:bg-[#1b3330] text-white h-12 w-full font-bold shadow-sm" onClick={() => setIsClaimOpen(true)} disabled={isLocked}>Claim Manual Payment</Button>
-        
-        {/* ✅ UPDATED BUTTON: Uses renderFeeButtonText() */}
-        <Button 
-            className="bg-[#576066] hover:bg-[#464e54] text-white h-12 w-full font-bold shadow-sm" 
-            onClick={() => setIsPayFeeOpen(true)} 
-            disabled={isPending}
-        >
-            {renderFeeButtonText()}
-        </Button>
-        
+        <Button className="bg-[#576066] hover:bg-[#464e54] text-white h-12 w-full font-bold shadow-sm" onClick={() => setIsPayFeeOpen(true)} disabled={isPending}>{renderFeeButtonText()}</Button>
         <Button className="bg-[#122932] hover:bg-[#0d1f26] text-white h-12 w-full font-bold shadow-sm disabled:opacity-40 disabled:cursor-not-allowed" onClick={() => setIsPayoutOpen(true)} disabled={!isAdmin} title={!isAdmin ? "Only Admins can initiate payouts" : "Send money to a member"}>Payout Member</Button>
       </div>
 
       {/* TABS */}
       {isPending ? (
           <div className="text-center py-20 bg-amber-50 border-2 border-dashed border-amber-200 rounded-xl flex flex-col items-center justify-center gap-3">
-            <div className="bg-amber-100 p-4 rounded-full animate-pulse"><Clock className="h-12 w-12 text-amber-600" /></div>
-            <h3 className="text-lg font-bold text-amber-900">Payment Under Review</h3>
-            <p className="text-amber-700 max-w-sm mx-auto">We have received your payment proof. An admin will review and activate your access shortly.</p>
-            <Button onClick={contactAdminForApproval} variant="outline" className="mt-2 border-amber-300 text-amber-800 hover:bg-amber-100"><MessageCircle className="w-4 h-4 mr-2" /> Follow up via WhatsApp</Button>
+            <div className="bg-amber-100 p-4 rounded-full animate-pulse"><Clock className="h-12 w-12 text-amber-600" /></div><h3 className="text-lg font-bold text-amber-900">Payment Under Review</h3><p className="text-amber-700 max-w-sm mx-auto">We have received your payment proof. An admin will review and activate your access shortly.</p><Button onClick={contactAdminForApproval} variant="outline" className="mt-2 border-amber-300 text-amber-800 hover:bg-amber-100"><MessageCircle className="w-4 h-4 mr-2" /> Follow up via WhatsApp</Button>
         </div>
       ) : isLocked ? (
           <div className="text-center py-20 bg-slate-50 border-2 border-dashed border-slate-200 rounded-xl flex flex-col items-center justify-center gap-3">
-              <div className="bg-slate-100 p-4 rounded-full"><Lock className="h-12 w-12 text-slate-400" /></div>
-              <h3 className="text-lg font-bold text-slate-900">Access Restricted</h3>
-              <p className="text-slate-500 max-w-sm mx-auto">Activate your group privileges by paying Platform Fee.</p>
-              
-              {/* ✅ UPDATED LOCKED BUTTON: Handles Free State */}
-              <Button onClick={() => setIsPayFeeOpen(true)} className="mt-2 bg-[#2C514C] hover:bg-[#25423e] text-white">
-                  {platformFee === 0 ? "Activate Access (Free)" : `Pay Now (${formatCurrency(platformFee)})`}
-              </Button>
+              <div className="bg-slate-100 p-4 rounded-full"><Lock className="h-12 w-12 text-slate-400" /></div><h3 className="text-lg font-bold text-slate-900">Access Restricted</h3><p className="text-slate-500 max-w-sm mx-auto">Activate your group privileges by paying Platform Fee.</p><Button onClick={() => setIsPayFeeOpen(true)} className="mt-2 bg-[#2C514C] hover:bg-[#25423e] text-white">{platformFee === 0 ? "Activate Access (Free)" : `Pay Now (${formatCurrency(platformFee)})`}</Button>
           </div>
       ) : (
         <Tabs defaultValue="ledger" className="w-full mt-4">
-            <div className="w-full overflow-x-auto pb-2 scrollbar-hide">
-                <TabsList className="w-auto inline-flex justify-start h-auto p-0 bg-transparent space-x-6">
-                    <TabsTrigger value="ledger" className="border-b-2 border-transparent data-[state=active]:border-[#2C514C] data-[state=active]:text-[#2C514C] pb-2 bg-transparent whitespace-nowrap font-medium text-slate-500">Ledger</TabsTrigger>
-                    <TabsTrigger value="members" className="border-b-2 border-transparent data-[state=active]:border-[#2C514C] data-[state=active]:text-[#2C514C] pb-2 bg-transparent whitespace-nowrap font-medium text-slate-500">Members</TabsTrigger>
-                    {isAdmin && <TabsTrigger value="schedule" className="border-b-2 border-transparent data-[state=active]:border-[#2C514C] data-[state=active]:text-[#2C514C] pb-2 bg-transparent whitespace-nowrap font-medium text-slate-500">Schedule</TabsTrigger>}
-                    {isAdmin && <TabsTrigger value="admin" className="border-b-2 border-transparent data-[state=active]:border-[#2C514C] data-[state=active]:text-[#2C514C] pb-2 bg-transparent whitespace-nowrap font-medium text-slate-500">Admin Forms</TabsTrigger>}
-                </TabsList>
-            </div>
-            
+            <div className="w-full overflow-x-auto pb-2 scrollbar-hide"><TabsList className="w-auto inline-flex justify-start h-auto p-0 bg-transparent space-x-6"><TabsTrigger value="ledger" className="border-b-2 border-transparent data-[state=active]:border-[#2C514C] data-[state=active]:text-[#2C514C] pb-2 bg-transparent whitespace-nowrap font-medium text-slate-500">Ledger</TabsTrigger><TabsTrigger value="members" className="border-b-2 border-transparent data-[state=active]:border-[#2C514C] data-[state=active]:text-[#2C514C] pb-2 bg-transparent whitespace-nowrap font-medium text-slate-500">Members</TabsTrigger>{isAdmin && <TabsTrigger value="schedule" className="border-b-2 border-transparent data-[state=active]:border-[#2C514C] data-[state=active]:text-[#2C514C] pb-2 bg-transparent whitespace-nowrap font-medium text-slate-500">Schedule</TabsTrigger>}{isAdmin && <TabsTrigger value="admin" className="border-b-2 border-transparent data-[state=active]:border-[#2C514C] data-[state=active]:text-[#2C514C] pb-2 bg-transparent whitespace-nowrap font-medium text-slate-500">Admin Forms</TabsTrigger>}</TabsList></div>
             <TabsContent value="ledger" className="mt-4 w-full"><div className="w-full overflow-x-auto border rounded-lg bg-white shadow-sm"><div className="min-w-[600px] md:min-w-full"><TransactionLedger groupId={group.id} /></div></div></TabsContent>
             <TabsContent value="members" className="mt-4 w-full"><div className="w-full overflow-x-auto bg-white rounded-lg shadow-sm"><MembersList groupId={group.id} /></div></TabsContent>
             {isAdmin && <TabsContent value="schedule" className="mt-4 w-full"><div className="w-full overflow-x-auto border rounded-lg bg-white shadow-sm"><div className="min-w-[600px] md:min-w-full"><PayoutScheduleTab groupId={group.id} /></div></div></TabsContent>}
