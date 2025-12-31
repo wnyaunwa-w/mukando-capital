@@ -17,7 +17,8 @@ import {
   getDoc,
   deleteDoc,
   updateDoc,
-  increment
+  increment,
+  arrayRemove // ✅ Added this import
 } from "firebase/firestore";
 import { getFirebaseApp } from "@/lib/firebase/client";
 import {
@@ -36,11 +37,11 @@ interface Member {
   role: 'admin' | 'member';
   joinedAt: any;
   email?: string;
-  photoURL?: string; // Add photoURL to type
+  photoURL?: string; 
 }
 
 export function MembersList({ groupId }: { groupId: string }) {
-  const { user } = useAuth(); // We need to wait for this!
+  const { user } = useAuth(); 
   const { toast } = useToast();
   const router = useRouter();
   
@@ -49,7 +50,6 @@ export function MembersList({ groupId }: { groupId: string }) {
   const [processingId, setProcessingId] = useState<string | null>(null);
 
   useEffect(() => {
-    // FIX: Add check for 'user'. If not logged in yet, do not try to fetch (avoids Permission Denied)
     if (!groupId || !user) return;
 
     const db = getFirestore(getFirebaseApp());
@@ -61,7 +61,7 @@ export function MembersList({ groupId }: { groupId: string }) {
         ...d.data()
       })) as Member[];
 
-      // FETCH LIVE DATA: Always fetch the latest profile from the 'users' collection
+      // FETCH LIVE DATA
       const enrichedMembers = await Promise.all(basicMembers.map(async (member) => {
         try {
             const userSnap = await getDoc(doc(db, "users", member.userId));
@@ -82,27 +82,36 @@ export function MembersList({ groupId }: { groupId: string }) {
       setMembers(enrichedMembers);
       setLoading(false);
     }, (error) => {
-        // Gracefully handle errors (like permission issues during auth switch)
         console.log("Snapshot error (likely auth pending):", error);
     });
 
     return () => unsubscribe();
-  }, [groupId, user]); // FIX: Add 'user' to dependency array
+  }, [groupId, user]);
 
-  // Determine My Role
   const myMemberProfile = members.find(m => m.userId === user?.uid);
   const amIAdmin = myMemberProfile?.role === 'admin';
 
   // --- ACTIONS ---
+
+  // ✅ FIXED: Removes user from 'memberIds' array so group disappears from Dashboard
   const handleLeaveGroup = async () => {
     if (!user || !confirm("Are you sure you want to leave this group?")) return;
     setProcessingId("leave");
     try {
         const db = getFirestore(getFirebaseApp());
+        
+        // 1. Delete Member Record
         await deleteDoc(doc(db, "groups", groupId, "members", user.uid));
-        await updateDoc(doc(db, "groups", groupId), { membersCount: increment(-1) });
+        
+        // 2. Update Group (Decrement count AND remove ID from list)
+        await updateDoc(doc(db, "groups", groupId), { 
+            membersCount: increment(-1),
+            memberIds: arrayRemove(user.uid) // Critical Fix
+        });
+
         toast({ title: "Left Group", description: "You have successfully left the group." });
         router.push("/dashboard");
+
     } catch (error) {
         console.error(error);
         toast({ variant: "destructive", title: "Error", description: "Failed to leave." });
@@ -110,13 +119,22 @@ export function MembersList({ groupId }: { groupId: string }) {
     }
   };
 
+  // ✅ FIXED: Removes kicked member from 'memberIds' array too
   const handleRemoveMember = async (targetMemberId: string, memberName: string) => {
     if (!confirm(`Remove ${memberName}?`)) return;
     setProcessingId(targetMemberId);
     try {
         const db = getFirestore(getFirebaseApp());
+        
+        // 1. Delete Member Record
         await deleteDoc(doc(db, "groups", groupId, "members", targetMemberId));
-        await updateDoc(doc(db, "groups", groupId), { membersCount: increment(-1) });
+        
+        // 2. Update Group
+        await updateDoc(doc(db, "groups", groupId), { 
+            membersCount: increment(-1),
+            memberIds: arrayRemove(targetMemberId) // Critical Fix
+        });
+
         toast({ title: "Removed", description: `${memberName} removed.` });
     } catch (error) {
         toast({ variant: "destructive", title: "Error", description: "Failed to remove." });
@@ -156,7 +174,6 @@ export function MembersList({ groupId }: { groupId: string }) {
           <div key={member.id} className="flex items-center justify-between p-3 bg-white rounded-lg border shadow-sm">
             <div className="flex items-center gap-3">
               <Avatar className="h-10 w-10 border bg-slate-100">
-                {/* Fixed Image component */}
                 <AvatarImage src={member.photoURL || ""} className="object-cover" />
                 <AvatarFallback className="text-slate-600 font-bold">
                     {member.displayName ? member.displayName.substring(0, 2).toUpperCase() : "U"}
