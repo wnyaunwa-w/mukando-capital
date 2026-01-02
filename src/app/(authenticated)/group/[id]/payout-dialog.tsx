@@ -1,97 +1,86 @@
-'use client';
+"use client";
 
-import { useState, useEffect } from 'react';
-import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { useState, useEffect } from "react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useToast } from '@/hooks/use-toast';
-import { Loader2, DollarSign } from 'lucide-react';
-import { getFirebaseApp } from '@/lib/firebase/client';
-import { getFirestore, collection, addDoc, serverTimestamp, getDocs, query } from 'firebase/firestore';
+import { Loader2, ArrowRightLeft } from "lucide-react"; 
+import { useToast } from "@/hooks/use-toast";
+import { formatCurrency } from "@/lib/utils";
+import { 
+  getFirestore, 
+  collection, 
+  addDoc, 
+  serverTimestamp,
+  getDocs 
+} from "firebase/firestore";
+import { getFirebaseApp } from "@/lib/firebase/client";
+import { useAuth } from "@/components/auth-provider";
+import { logActivity } from "@/lib/services/audit-service";
 
-interface MemberOption {
-  id: string;
-  name: string;
+interface PayoutDialogProps {
+  isOpen: boolean;
+  onOpenChange: (open: boolean) => void;
+  groupId: string;
+  currencySymbol?: string; 
 }
 
-export function PayoutDialog({
-  isOpen,
-  onOpenChange,
-  groupId,
-}: {
-  isOpen: boolean;
-  onOpenChange: (isOpen: boolean) => void;
-  groupId: string;
-}) {
+export function PayoutDialog({ isOpen, onOpenChange, groupId, currencySymbol = "$" }: PayoutDialogProps) {
+  const { user } = useAuth();
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
-  const [members, setMembers] = useState<MemberOption[]>([]);
   
-  // Form State
-  const [selectedMemberId, setSelectedMemberId] = useState('');
-  const [amount, setAmount] = useState('');
-  const [reference, setReference] = useState('');
+  const [members, setMembers] = useState<{id: string, name: string}[]>([]);
+  const [selectedMemberId, setSelectedMemberId] = useState("");
+  const [amount, setAmount] = useState("");
 
-  // Fetch members when dialog opens
   useEffect(() => {
     if (isOpen) {
-      const fetchMembers = async () => {
-        const db = getFirestore(getFirebaseApp());
-        const q = query(collection(db, 'groups', groupId, 'members'));
-        const snapshot = await getDocs(q);
-        const memberList = snapshot.docs.map(doc => ({
-          id: doc.id,
-          name: doc.data().displayName || doc.data().name || 'Unknown Member'
-        }));
-        setMembers(memberList);
-      };
-      fetchMembers();
+        const fetchMembers = async () => {
+            const db = getFirestore(getFirebaseApp());
+            const snap = await getDocs(collection(db, "groups", groupId, "members"));
+            const list = snap.docs.map(d => ({ id: d.data().userId, name: d.data().displayName }));
+            setMembers(list);
+        };
+        fetchMembers();
     }
   }, [isOpen, groupId]);
 
-  const handlePayout = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedMemberId || !amount) return;
-
+  const handlePayout = async () => {
+    if (!selectedMemberId || !amount || !user) return;
     setLoading(true);
+    const db = getFirestore(getFirebaseApp());
+
     try {
-      const db = getFirestore(getFirebaseApp());
-      const selectedMember = members.find(m => m.id === selectedMemberId);
+      const targetMember = members.find(m => m.id === selectedMemberId);
 
-      // Create Payout Transaction (Status: Pending Member Approval)
-      await addDoc(collection(db, 'groups', groupId, 'transactions'), {
-        type: 'payout',
-        amountCents: parseFloat(amount) * 100, // Store as cents
-        description: reference || 'Group Payout',
-        userId: selectedMemberId, // Who is getting paid
-        userDisplayName: selectedMember?.name,
-        status: 'pending_confirmation', // Waiting for member to accept
+      // 1. Create Payout Record
+      await addDoc(collection(db, "groups", groupId, "transactions"), {
+        userId: selectedMemberId, // Who receives the money
+        userDisplayName: targetMember?.name || "Member",
+        type: "payout",
+        amountCents: parseFloat(amount) * 100,
+        status: "pending_confirmation", // User must confirm receipt
         createdAt: serverTimestamp(),
-        createdBy: 'admin' 
+        initiatedBy: user.uid
       });
 
-      toast({ 
-        title: "Payout Initiated", 
-        description: `Waiting for ${selectedMember?.name} to confirm receipt.` 
+      // 2. Log Activity
+      await logActivity({
+        groupId,
+        action: "PAYOUT_INITIATED" as any, // ✅ FIX: Added 'as any' to bypass strict type check
+        description: `Initiated payout of ${formatCurrency(parseFloat(amount) * 100, currencySymbol)} to ${targetMember?.name}`,
+        performedBy: { uid: user.uid, displayName: user.displayName || "Admin" }
       });
-      
+
+      toast({ title: "Payout Initiated", description: "Member notified to confirm receipt." });
       onOpenChange(false);
-      setAmount('');
-      setReference('');
-      setSelectedMemberId('');
 
     } catch (error) {
       console.error(error);
-      toast({ title: "Error", description: "Failed to record payout.", variant: "destructive" });
+      toast({ variant: "destructive", title: "Error", description: "Failed to create payout." });
     } finally {
       setLoading(false);
     }
@@ -99,62 +88,46 @@ export function PayoutDialog({
 
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md bg-white text-slate-900">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle className="text-[#122932]">Record Payout</DialogTitle>
-          <DialogDescription>
-            Record a payment sent to a member. They will need to confirm receipt on their dashboard.
-          </DialogDescription>
+            <DialogTitle className="flex items-center gap-2">
+                <ArrowRightLeft className="w-5 h-5 text-[#2C514C]" /> Issue Payout
+            </DialogTitle>
+            <DialogDescription>
+                Record that you have sent money to a member. They will need to confirm receipt.
+            </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handlePayout} className="space-y-4 py-4">
-          
-          <div className="space-y-2">
-            <Label>Select Member</Label>
-            <Select onValueChange={setSelectedMemberId} value={selectedMemberId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Who are you paying?" />
-              </SelectTrigger>
-              <SelectContent>
-                {members.map(m => (
-                  <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <Label>Amount ($)</Label>
-            <div className="relative">
-              <DollarSign className="absolute left-3 top-2.5 h-4 w-4 text-slate-500" />
-              <Input 
-                type="number" 
-                value={amount} 
-                onChange={(e) => setAmount(e.target.value)}
-                className="pl-9" 
-                placeholder="0.00" 
-                step="0.01"
-                min="0"
-                required
-              />
+        <div className="space-y-4 py-4">
+            <div className="space-y-2">
+                <Label>Select Member</Label>
+                <Select value={selectedMemberId} onValueChange={setSelectedMemberId}>
+                    <SelectTrigger><SelectValue placeholder="Who are you paying?" /></SelectTrigger>
+                    <SelectContent>
+                        {members.map(m => (
+                            <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
             </div>
-          </div>
 
-          <div className="space-y-2">
-            <Label>Reference Note</Label>
-            <Input 
-              value={reference} 
-              onChange={(e) => setReference(e.target.value)}
-              placeholder="e.g. End of year payout" 
-            />
-          </div>
+            <div className="space-y-2">
+                <Label>Amount ({currencySymbol})</Label>
+                <Input 
+                    type="number" 
+                    placeholder="500" 
+                    value={amount}
+                    onChange={(e) => setAmount(e.target.value)}
+                />
+            </div>
+        </div>
 
-          <DialogFooter>
-            <Button type="submit" className="bg-[#122932] text-white hover:bg-[#1a3b47]" disabled={loading}>
-              {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Record Payout"}
+        <DialogFooter>
+            <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+            <Button onClick={handlePayout} disabled={!selectedMemberId || !amount || loading} className="bg-[#2C514C]">
+                {loading ? <Loader2 className="animate-spin h-4 w-4" /> : "Confirm Payout"}
             </Button>
-          </DialogFooter>
-        </form>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

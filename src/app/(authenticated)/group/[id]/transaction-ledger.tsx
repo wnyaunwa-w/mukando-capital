@@ -1,6 +1,6 @@
-'use client';
+"use client";
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState } from "react";
 import { 
   Table, 
   TableBody, 
@@ -8,195 +8,95 @@ import {
   TableHead, 
   TableHeader, 
   TableRow 
-} from '@/components/ui/table';
-import { Badge } from '@/components/ui/badge';
-import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
-import { getFirebaseApp } from '@/lib/firebase/client';
+} from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
+import { Loader2 } from "lucide-react";
+import { formatCurrency } from "@/lib/utils";
 import { 
   getFirestore, 
   collection, 
   query, 
   orderBy, 
-  onSnapshot, 
-  limit 
-} from 'firebase/firestore';
-import { formatCurrency } from '@/lib/utils';
-import { format } from 'date-fns';
-import { Loader2, History, AlertCircle } from 'lucide-react';
-import { useAuth } from '@/components/auth-provider';
+  onSnapshot 
+} from "firebase/firestore";
+import { getFirebaseApp } from "@/lib/firebase/client";
 
 interface Transaction {
   id: string;
-  type: 'contribution' | 'payout' | 'fee';
+  type: 'contribution' | 'payout';
   amountCents: number;
-  description: string;
-  date?: any;           // String "YYYY-MM-DD"
-  createdAt?: any;      // Firestore Timestamp
-  userId: string;
-  userDisplayName?: string; // ✅ Fixed: Matches database field
-  status?: string;      // ✅ Added: To filter approved items
+  userDisplayName: string;
+  createdAt: any;
+  status: 'pending' | 'completed' | 'pending_confirmation';
 }
 
-export function TransactionLedger({ groupId }: { groupId: string }) {
+// ✅ FIX: Added currencySymbol to props
+export function TransactionLedger({ groupId, currencySymbol = "$" }: { groupId: string, currencySymbol?: string }) {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const { user } = useAuth();
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!groupId || !user) return;
-
     const db = getFirestore(getFirebaseApp());
-    
-    // Query: Order by createdAt (creation time) to show newest entries first
     const q = query(
-      collection(db, 'groups', groupId, 'transactions'),
-      orderBy('createdAt', 'desc'), 
-      limit(20)
+      collection(db, "groups", groupId, "transactions"),
+      orderBy("createdAt", "desc")
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      try {
-        const rawTxs = snapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-        })) as Transaction[];
-        
-        // ✅ Filter: Only show approved ('completed') transactions
-        const approvedTxs = rawTxs.filter(tx => tx.status === 'completed');
-        
-        setTransactions(approvedTxs);
-        setIsLoading(false);
-        setErrorMsg(null);
-      } catch (err) {
-        console.error("Data mapping error:", err);
-        setErrorMsg("Failed to process transaction data.");
-        setIsLoading(false);
-      }
-    }, (error) => {
-      console.error("Firestore Error:", error);
-      if (error.code === 'permission-denied') {
-        setErrorMsg("You do not have permission to view these transactions.");
-      } else {
-        setErrorMsg("Could not load transactions.");
-      }
-      setIsLoading(false);
+      const txs = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Transaction[];
+      setTransactions(txs);
+      setLoading(false);
     });
 
     return () => unsubscribe();
-  }, [groupId, user]);
+  }, [groupId]);
 
-  // HELPER: "Bulletproof" Date Formatter
-  const safeFormatDate = (tx: Transaction) => {
-    // Priority: 1. Manual Date String (YYYY-MM-DD), 2. CreatedAt Timestamp
-    const dateVal = tx.date || tx.createdAt;
+  if (loading) return <div className="p-10 flex justify-center"><Loader2 className="animate-spin text-slate-400" /></div>;
 
-    if (!dateVal) return '-';
-    
-    try {
-        // Case A: Firestore Timestamp (has .seconds)
-        if (typeof dateVal === 'object' && 'seconds' in dateVal) {
-            return format(new Date(dateVal.seconds * 1000), 'dd MMM yyyy');
-        }
-        
-        // Case B: String date or JS Date object
-        const jsDate = new Date(dateVal);
-        if (!isNaN(jsDate.getTime())) {
-             return format(jsDate, 'dd MMM yyyy');
-        }
-    } catch (e) {
-        // Ignore error
-    }
-    return 'Invalid Date';
-  };
-
-  if (isLoading) {
-    return <div className="flex justify-center p-8"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
-  }
-
-  if (errorMsg) {
-    return (
-        <Card className="border-red-100 bg-red-50">
-            <CardContent className="flex flex-col items-center justify-center p-6 text-red-600">
-                <AlertCircle className="h-8 w-8 mb-2" />
-                <p className="font-medium">{errorMsg}</p>
-            </CardContent>
-        </Card>
-    );
+  if (transactions.length === 0) {
+    return <div className="p-8 text-center text-slate-500 border rounded-lg bg-slate-50">No transactions recorded yet.</div>;
   }
 
   return (
-    <Card className="border-none shadow-none">
-      <CardHeader className="px-0 pt-0">
-        <CardTitle className="flex items-center gap-2 text-xl text-[#122932]">
-            <History className="h-5 w-5 text-slate-500" />
-            Recent Activity
-        </CardTitle>
-        <CardDescription>
-            Approved transactions. (Pending claims will not appear here yet).
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="p-0">
-        <div className="rounded-md border bg-white">
-          <Table>
-            <TableHeader className="bg-slate-50">
-              <TableRow>
-                <TableHead className="w-[120px]">Date</TableHead>
-                <TableHead>Description</TableHead>
-                <TableHead>Member</TableHead>
-                <TableHead className="text-right">Amount</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {transactions.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={4} className="text-center py-8 text-slate-500 text-sm">
-                    No approved transactions yet.
-                  </TableCell>
-                </TableRow>
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>Date</TableHead>
+          <TableHead>Member</TableHead>
+          <TableHead>Type</TableHead>
+          <TableHead className="text-right">Amount</TableHead>
+          <TableHead className="text-right">Status</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {transactions.map((tx) => (
+          <TableRow key={tx.id}>
+            <TableCell className="text-xs text-slate-500">
+              {tx.createdAt?.seconds ? new Date(tx.createdAt.seconds * 1000).toLocaleDateString() : 'N/A'}
+            </TableCell>
+            <TableCell className="font-medium text-slate-700">{tx.userDisplayName}</TableCell>
+            <TableCell>
+              <Badge variant="outline" className={tx.type === 'contribution' ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-purple-50 text-purple-700 border-purple-200'}>
+                {tx.type === 'contribution' ? 'Paid In' : 'Payout'}
+              </Badge>
+            </TableCell>
+            <TableCell className="text-right font-bold text-slate-900">
+              {/* ✅ FIX: Using dynamic currency symbol */}
+              {formatCurrency(tx.amountCents, currencySymbol)}
+            </TableCell>
+            <TableCell className="text-right">
+              {tx.status === 'completed' ? (
+                <Badge className="bg-green-100 text-green-700 border-none shadow-none hover:bg-green-100">Success</Badge>
               ) : (
-                transactions.map((tx) => (
-                  <TableRow key={tx.id} className="hover:bg-slate-50">
-                    {/* 1. DATE */}
-                    <TableCell className="font-mono text-xs text-slate-500 whitespace-nowrap">
-                      {safeFormatDate(tx)}
-                    </TableCell>
-                    
-                    {/* 2. DESCRIPTION */}
-                    <TableCell>
-                      <div className="flex flex-col">
-                          <span className="font-medium text-sm text-slate-900">{tx.description}</span>
-                          <Badge 
-                              variant="secondary" 
-                              className={`w-fit mt-1 text-[10px] h-5 px-1.5 ${
-                                  tx.type === 'contribution' ? 'bg-green-100 text-green-700 hover:bg-green-200' : 
-                                  tx.type === 'payout' ? 'bg-blue-100 text-blue-700 hover:bg-blue-200' : 
-                                  'bg-slate-100 text-slate-700'
-                              }`}
-                          >
-                              {tx.type}
-                          </Badge>
-                      </div>
-                    </TableCell>
-                    
-                    {/* 3. MEMBER NAME (Corrected Field) */}
-                    <TableCell className="text-sm text-slate-600">
-                      {tx.userDisplayName || 'Unknown Member'}
-                    </TableCell>
-                    
-                    {/* 4. AMOUNT */}
-                    <TableCell className={`text-right font-bold ${
-                      tx.type === 'contribution' ? 'text-green-600' : 'text-slate-900'
-                    }`}>
-                      {tx.type === 'contribution' ? '+' : ''}{formatCurrency(tx.amountCents)}
-                    </TableCell>
-                  </TableRow>
-                ))
+                <Badge variant="secondary" className="text-slate-500">Pending</Badge>
               )}
-            </TableBody>
-          </Table>
-        </div>
-      </CardContent>
-    </Card>
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
   );
 }

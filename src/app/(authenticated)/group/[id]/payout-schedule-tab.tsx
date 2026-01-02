@@ -1,206 +1,99 @@
-'use client';
+"use client";
 
-import { useState, useEffect } from "react";
-import { Loader2, Save, Calendar as CalendarIcon } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
-
-// UI Components
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Input } from "@/components/ui/input";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-
-// Firebase
-import { getFirestore, doc, getDoc, getDocs, collection, updateDoc } from "firebase/firestore";
+import { useEffect, useState } from "react";
+import { format } from "date-fns";
+import { 
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow 
+} from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
+import { CalendarDays } from "lucide-react";
+import { formatCurrency } from "@/lib/utils";
+import { 
+  getFirestore, doc, getDoc 
+} from "firebase/firestore";
 import { getFirebaseApp } from "@/lib/firebase/client";
 
-// Types
 interface ScheduleItem {
   userId: string;
   displayName: string;
-  photoURL: string | null;
   payoutDate: string; // YYYY-MM-DD
-  status: 'pending' | 'paid';
+  amountCents: number; 
+  status: 'pending' | 'paid' | 'skipped';
 }
 
-export function PayoutScheduleTab({ groupId }: { groupId: string }) {
-  const { toast } = useToast();
+// ✅ FIX: Added currencySymbol to props
+export function PayoutScheduleTab({ groupId, currencySymbol = "$" }: { groupId: string, currencySymbol?: string }) {
+  const [schedule, setSchedule] = useState<ScheduleItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [scheduleItems, setScheduleItems] = useState<ScheduleItem[]>([]);
 
-  const db = getFirestore(getFirebaseApp());
-
-  // 1. Fetch Members and merge with existing schedule
   useEffect(() => {
-    const fetchData = async () => {
-      if (!groupId) return;
-      setLoading(true);
-      try {
-        // A. Get current group schedule data to see who has dates assigned
-        const groupDoc = await getDoc(doc(db, "groups", groupId));
-        const currentSchedule = groupDoc.data()?.payoutSchedule || [];
-        
-        // FIX: Explicitly tell TypeScript this Map contains 'any' data
-        const scheduleMap = new Map<string, any>(
-            currentSchedule.map((item: any) => [item.userId, item])
-        );
-
-        // B. Get all current members to list them in the table
-        const membersSnapshot = await getDocs(collection(db, "groups", groupId, "members"));
-        
-        const unifiedSchedule: ScheduleItem[] = await Promise.all(membersSnapshot.docs.map(async (memberDoc) => {
-            const userId = memberDoc.id;
-            // Default to member doc data
-            let displayName = memberDoc.data().displayName || "Unknown";
-            let photoURL = memberDoc.data().photoURL || null;
-
-            // Try to get up-to-date profile info from root 'users' collection
-            try {
-                const userSnap = await getDoc(doc(db, "users", userId));
-                if (userSnap.exists()) {
-                    displayName = userSnap.data().displayName || displayName;
-                    photoURL = userSnap.data().photoURL || photoURL;
-                }
-            } catch (e) { 
-                // ignore missing user profile, fallback to group member data 
-            }
-
-            const existingEntry = scheduleMap.get(userId);
-
-            return {
-                userId,
-                displayName,
-                photoURL,
-                // Use existing date/status if saved, otherwise default to empty
-                payoutDate: existingEntry?.payoutDate || "", 
-                status: existingEntry?.status || 'pending'
-            };
-        }));
-
-        // Sort by date (put those with dates at the top)
-        unifiedSchedule.sort((a, b) => {
-            if (!a.payoutDate) return 1;
-            if (!b.payoutDate) return -1;
-            return a.payoutDate.localeCompare(b.payoutDate);
-        });
-
-        setScheduleItems(unifiedSchedule);
-      } catch (error) {
-        console.error("Error fetching schedule data:", error);
-        toast({ variant: "destructive", title: "Error", description: "Could not load schedule data." });
-      } finally {
+    const fetchSchedule = async () => {
+        const db = getFirestore(getFirebaseApp());
+        const docRef = doc(db, "groups", groupId);
+        const snap = await getDoc(docRef);
+        if (snap.exists()) {
+            const data = snap.data();
+            setSchedule(data.payoutSchedule || []);
+        }
         setLoading(false);
-      }
     };
+    fetchSchedule();
+  }, [groupId]);
 
-    fetchData();
-  }, [groupId, db, toast]);
+  if (loading) return <div className="text-center py-10">Loading schedule...</div>;
 
-  // 2. Handlers for local state updates (Typing in the table)
-  const updateItem = (userId: string, field: keyof ScheduleItem, value: string) => {
-    setScheduleItems(prev => prev.map(item => 
-        item.userId === userId ? { ...item, [field]: value } : item
-    ));
-  };
-
-  // 3. Save to Firebase
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-        const groupRef = doc(db, "groups", groupId);
-        
-        // Find next payout date (earliest future date that is still PENDING)
-        const today = new Date().toISOString().split('T')[0];
-        const pendingFuture = scheduleItems
-            .filter(i => i.status === 'pending' && i.payoutDate && i.payoutDate >= today)
-            .sort((a, b) => a.payoutDate.localeCompare(b.payoutDate));
-
-        await updateDoc(groupRef, {
-            payoutSchedule: scheduleItems,
-            // Automatically update the dashboard "Next Payout" card
-            nextPayoutDate: pendingFuture.length > 0 ? pendingFuture[0].payoutDate : null,
-            updatedAt: new Date()
-        });
-        
-        toast({ title: "Success", description: "Payout schedule updated." });
-    } catch (error) {
-        console.error("Error saving:", error);
-        toast({ variant: "destructive", title: "Error", description: "Failed to save changes." });
-    } finally {
-        setSaving(false);
-    }
-  };
-
-  if (loading) return <div className="py-10 flex justify-center"><Loader2 className="animate-spin text-green-700" /></div>;
+  if (schedule.length === 0) {
+      return (
+          <div className="flex flex-col items-center justify-center py-10 text-center bg-slate-50 border rounded-lg border-dashed">
+              <CalendarDays className="h-10 w-10 text-slate-300 mb-2" />
+              <h3 className="text-lg font-medium text-slate-900">No Payout Schedule Yet</h3>
+              <p className="text-sm text-slate-500 max-w-sm">
+                  Go to "Admin Forms" to generate the rotation order automatically.
+              </p>
+          </div>
+      );
+  }
 
   return (
-    <Card className="border-none shadow-none">
-        <CardHeader className="px-0 pt-0 flex flex-row items-center justify-between">
-            <div>
-                <CardTitle className="text-xl font-bold">Payout Schedule</CardTitle>
-                <CardDescription>Manually manage dates and mark payouts as complete.</CardDescription>
-            </div>
-            <Button onClick={handleSave} disabled={saving} className="bg-green-700 hover:bg-green-800 gap-2">
-                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                Save Changes
-            </Button>
-        </CardHeader>
-        <CardContent className="px-0">
-            <div className="border rounded-md">
-            <Table>
-                <TableHeader>
-                    <TableRow className="bg-slate-50">
-                        <TableHead>Member</TableHead>
-                        <TableHead>Expected Date</TableHead>
-                        <TableHead className="w-[150px]">Status</TableHead>
+    <div className="space-y-4">
+        <div className="flex justify-between items-center">
+            <h3 className="font-bold text-lg text-slate-800">Payout Rotation</h3>
+            <span className="text-xs text-slate-500">Estimated dates</span>
+        </div>
+        
+        <Table>
+            <TableHeader>
+                <TableRow>
+                    <TableHead>Due Date</TableHead>
+                    <TableHead>Member</TableHead>
+                    <TableHead className="text-right">Amount</TableHead>
+                    <TableHead className="text-right">Status</TableHead>
+                </TableRow>
+            </TableHeader>
+            <TableBody>
+                {schedule.map((item, idx) => (
+                    <TableRow key={idx}>
+                        <TableCell className="font-medium text-slate-700">
+                            {format(new Date(item.payoutDate), "MMM d, yyyy")}
+                        </TableCell>
+                        <TableCell>{item.displayName}</TableCell>
+                        <TableCell className="text-right font-bold text-slate-900">
+                             {/* ✅ FIX: Using dynamic currency symbol */}
+                            {formatCurrency(item.amountCents, currencySymbol)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                            {item.status === 'paid' ? (
+                                <Badge className="bg-green-100 text-green-800 hover:bg-green-100 border-none">Paid</Badge>
+                            ) : item.status === 'skipped' ? (
+                                <Badge variant="outline" className="text-red-500 border-red-200">Skipped</Badge>
+                            ) : (
+                                <Badge variant="secondary" className="text-slate-500">Upcoming</Badge>
+                            )}
+                        </TableCell>
                     </TableRow>
-                </TableHeader>
-                <TableBody>
-                    {scheduleItems.map((item) => (
-                        <TableRow key={item.userId}>
-                            <TableCell className="flex items-center gap-3 font-medium">
-                                <Avatar className="h-8 w-8">
-                                    <AvatarImage src={item.photoURL || ""} />
-                                    <AvatarFallback className="bg-green-100 text-green-700">
-                                        {item.displayName.charAt(0)}
-                                    </AvatarFallback>
-                                </Avatar>
-                                {item.displayName}
-                            </TableCell>
-                            <TableCell>
-                                <div className="relative">
-                                    <Input 
-                                        type="date" 
-                                        value={item.payoutDate}
-                                        onChange={(e) => updateItem(item.userId, 'payoutDate', e.target.value)}
-                                        className="pl-10"
-                                    />
-                                    <CalendarIcon className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
-                                </div>
-                            </TableCell>
-                            <TableCell>
-                                <Select 
-                                    value={item.status} 
-                                    onValueChange={(val) => updateItem(item.userId, 'status', val as 'pending' | 'paid')}
-                                >
-                                    <SelectTrigger className={item.status === 'paid' ? "bg-green-50 text-green-700 border-green-200 font-bold" : ""}>
-                                        <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="pending">Pending</SelectItem>
-                                        <SelectItem value="paid" className="text-green-700 font-medium">Paid</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                            </TableCell>
-                        </TableRow>
-                    ))}
-                </TableBody>
-            </Table>
-            </div>
-        </CardContent>
-    </Card>
+                ))}
+            </TableBody>
+        </Table>
+    </div>
   );
 }

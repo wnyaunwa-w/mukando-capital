@@ -1,22 +1,20 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Loader2, CheckCircle2, MessageCircle } from "lucide-react"; 
 import { useToast } from "@/hooks/use-toast";
+import { formatCurrency } from "@/lib/utils";
 import { 
   getFirestore, 
   collection, 
   addDoc, 
-  serverTimestamp,
-  query,
-  where,
-  getDocs,
-  getDoc,
-  doc
+  serverTimestamp, 
+  doc, 
+  getDoc 
 } from "firebase/firestore";
 import { getFirebaseApp } from "@/lib/firebase/client";
 import { useAuth } from "@/components/auth-provider";
@@ -26,221 +24,127 @@ interface ClaimPaymentDialogProps {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
   groupId: string;
-  isSubscriptionLocked: boolean; 
+  isSubscriptionLocked: boolean;
+  currencySymbol?: string; // ✅ FIX: Added this prop
 }
 
-export function ClaimPaymentDialog({ isOpen, onOpenChange, groupId }: ClaimPaymentDialogProps) {
+export function ClaimPaymentDialog({ isOpen, onOpenChange, groupId, isSubscriptionLocked, currencySymbol = "$" }: ClaimPaymentDialogProps) {
   const { user } = useAuth();
   const { toast } = useToast();
+  const [amount, setAmount] = useState("");
   const [loading, setLoading] = useState(false);
-  const [isSuccess, setIsSuccess] = useState(false);
-  const [adminPhone, setAdminPhone] = useState<string | null>(null); // Store dynamic admin phone
+  const [success, setSuccess] = useState(false);
   
-  const [formData, setFormData] = useState({
-    amount: "",
-    refNumber: ""
-  });
+  const [instructions, setInstructions] = useState("Contact Admin for details.");
 
-  const db = getFirestore(getFirebaseApp());
-
-  // --- NEW: FETCH ADMIN PHONE NUMBER AUTOMATICALLY ---
-  useEffect(() => {
-    const fetchAdminNumber = async () => {
-        if (!groupId) return;
-        try {
-            // 1. Find the Admin's User ID in this group
-            const membersRef = collection(db, "groups", groupId, "members");
-            const q = query(membersRef, where("role", "==", "admin"));
-            const snapshot = await getDocs(q);
-
-            if (!snapshot.empty) {
-                const adminId = snapshot.docs[0].id; // Member ID is the User ID
-
-                // 2. Fetch the Admin's Profile to get the phone number
-                const userDoc = await getDoc(doc(db, "users", adminId));
-                if (userDoc.exists()) {
-                    const userData = userDoc.data();
-                    if (userData.phoneNumber) {
-                        setAdminPhone(userData.phoneNumber);
-                    }
-                }
-            }
-        } catch (error) {
-            console.error("Error fetching admin phone:", error);
-        }
-    };
-
-    if (isOpen) {
-        fetchAdminNumber();
-    }
-  }, [isOpen, groupId, db]);
+  if (isOpen && instructions === "Contact Admin for details.") {
+      const db = getFirestore(getFirebaseApp());
+      getDoc(doc(db, "groups", groupId)).then((snap) => {
+          if (snap.exists() && snap.data().paymentInstructions) {
+              setInstructions(snap.data().paymentInstructions);
+          }
+      });
+  }
 
   const handleSubmit = async () => {
-    if (!user || !formData.amount || !formData.refNumber) return;
-
+    if (!amount || !user) return;
     setLoading(true);
+    const db = getFirestore(getFirebaseApp());
 
     try {
-      const amountCents = parseFloat(formData.amount) * 100;
-
-      // 1. Create the Transaction Record
-      const txnRef = await addDoc(collection(db, "groups", groupId, "transactions"), {
+      await addDoc(collection(db, "groups", groupId, "transactions"), {
         userId: user.uid,
         userDisplayName: user.displayName || "Member",
-        userEmail: user.email,
         type: "contribution",
-        amountCents: amountCents,
-        description: `Manual Contribution (Ref: ${formData.refNumber})`,
-        status: "pending", 
-        createdAt: serverTimestamp(),
-        referenceNumber: formData.refNumber
+        amountCents: parseFloat(amount) * 100,
+        status: "pending_confirmation",
+        createdAt: serverTimestamp()
       });
 
-      // 2. Log Activity
       await logActivity({
-        groupId: groupId,
-        action: "PAYMENT_CLAIMED",
-        description: `Claimed contribution of $${formData.amount} (Ref: ${formData.refNumber})`,
-        performedBy: { uid: user.uid, displayName: user.displayName || "Member" },
-        metadata: { txnId: txnRef.id, amount: amountCents }
+        groupId,
+        action: "PAYMENT_CLAIMED", 
+        description: `Claimed payment of ${formatCurrency(parseFloat(amount) * 100, currencySymbol)}`,
+        performedBy: { uid: user.uid, displayName: user.displayName || "Member" }
       });
 
-      // 3. SWITCH TO SUCCESS SCREEN
-      setIsSuccess(true);
-      toast({ title: "Saved", description: "Claim recorded successfully." });
+      setSuccess(true);
+      toast({ title: "Claim Sent", description: "Admin notified to approve." });
 
-    } catch (error: any) {
+    } catch (error) {
       console.error(error);
       toast({ variant: "destructive", title: "Error", description: "Failed to submit claim." });
-      setLoading(false); 
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleWhatsApp = () => {
-    // 1. Create the message
-    const message = `Hi Admin, I have just made a contribution of $${formData.amount} (Ref: ${formData.refNumber}). Please verify and approve on Mukando.`;
-    
-    // 2. Format the URL based on whether we found a phone number
-    let whatsappUrl = "";
-
-    if (adminPhone) {
-        // Clean number (remove non-digits)
-        let cleanNumber = adminPhone.replace(/[^\d]/g, '');
-        // Handle Zimbabwe '07' -> '2637'
-        if (cleanNumber.startsWith('07')) {
-            cleanNumber = '263' + cleanNumber.substring(1);
-        }
-        // Direct to specific chat
-        whatsappUrl = `https://wa.me/${cleanNumber}?text=${encodeURIComponent(message)}`;
-    } else {
-        // Fallback: Opens WhatsApp contact picker
-        whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
-    }
-
-    window.open(whatsappUrl, '_blank');
-    
-    // Close dialog after opening WhatsApp
-    handleClose();
+     const text = `Hi Admin, I have sent ${currencySymbol}${amount} to your account. Please approve on Mukando.`;
+     window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+     onOpenChange(false);
   };
 
-  const handleClose = () => {
-    setIsSuccess(false);
-    setFormData({ amount: "", refNumber: "" });
-    setLoading(false);
-    onOpenChange(false);
-  };
+  if (isSubscriptionLocked) return null;
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => { if(!open) handleClose(); }}>
+    <Dialog open={isOpen} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
-        
-        {/* VIEW 1: FORM INPUT */}
-        {!isSuccess && (
-          <>
-            <DialogHeader>
-              <DialogTitle>Make a Contribution</DialogTitle>
-              <DialogDescription>
-                Step 1: Send funds to the admin.<br/>
-                Step 2: Record the reference below.
-              </DialogDescription>
-            </DialogHeader>
+        {!success ? (
+            <>
+                <DialogHeader>
+                    <DialogTitle>Claim Manual Payment</DialogTitle>
+                    <DialogDescription>
+                        Use this if you sent money to the Admin (Cash, Bank, Mobile Money).
+                    </DialogDescription>
+                </DialogHeader>
+                
+                <div className="p-4 bg-slate-50 rounded-lg border border-slate-100 space-y-2 mb-2">
+                    <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Payment Instructions</p>
+                    <p className="text-sm text-slate-700 whitespace-pre-wrap">{instructions}</p>
+                </div>
 
-            <div className="space-y-4 py-4">
-              <div className="p-4 bg-slate-50 rounded-md border border-slate-100">
-                <p className="text-sm font-medium text-slate-500 mb-1">Payment Instructions:</p>
-                {adminPhone ? (
-                     <p className="text-md font-bold text-slate-800">
-                        Admin Phone: {adminPhone} <span className="text-xs font-normal text-slate-500">(Innbucks/EcoCash)</span>
-                     </p>
-                ) : (
-                    <p className="text-md font-bold text-slate-800">Contact Admin for payment details</p>
-                )}
-              </div>
+                <div className="space-y-4 py-2">
+                    <div className="space-y-2">
+                        <Label htmlFor="amount">Amount Sent ({currencySymbol})</Label>
+                        <div className="relative">
+                            <span className="absolute left-3 top-2.5 text-slate-500 font-bold">{currencySymbol}</span>
+                            <Input 
+                                id="amount" 
+                                type="number" 
+                                placeholder="100" 
+                                className="pl-8 text-lg font-bold"
+                                value={amount}
+                                onChange={(e) => setAmount(e.target.value)}
+                            />
+                        </div>
+                    </div>
+                </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="amount">Amount (USD)</Label>
-                <Input 
-                  id="amount" 
-                  type="number"
-                  placeholder="e.g., 100" 
-                  value={formData.amount}
-                  onChange={(e) => setFormData(prev => ({ ...prev, amount: e.target.value }))}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="ref">Transaction Reference</Label>
-                <Input 
-                  id="ref" 
-                  placeholder="e.g., ECO-123456789" 
-                  value={formData.refNumber}
-                  onChange={(e) => setFormData(prev => ({ ...prev, refNumber: e.target.value }))}
-                />
-              </div>
-            </div>
-
-            <DialogFooter>
-              <Button variant="outline" onClick={handleClose}>Cancel</Button>
-              <Button 
-                onClick={handleSubmit} 
-                disabled={!formData.amount || !formData.refNumber || loading}
-                className="bg-green-700 hover:bg-green-800"
-              >
-                {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
-                Submit Claim
-              </Button>
-            </DialogFooter>
-          </>
+                <DialogFooter>
+                    <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+                    <Button onClick={handleSubmit} disabled={!amount || loading} className="bg-[#2C514C]">
+                        {loading ? <Loader2 className="animate-spin h-4 w-4" /> : "Submit Claim"}
+                    </Button>
+                </DialogFooter>
+            </>
+        ) : (
+            <>
+                <div className="py-6 flex flex-col items-center text-center space-y-4">
+                    <div className="h-16 w-16 bg-green-100 rounded-full flex items-center justify-center mb-2">
+                        <CheckCircle2 className="h-10 w-10 text-[#2C514C]" />
+                    </div>
+                    <DialogTitle className="text-2xl text-[#2C514C]">Claim Submitted!</DialogTitle>
+                    <p className="text-slate-500 max-w-xs">Your payment is pending approval. Send proof to the admin to speed things up.</p>
+                </div>
+                <DialogFooter className="flex-col space-y-2 sm:space-y-0">
+                    <Button onClick={handleWhatsApp} className="w-full bg-[#25D366] hover:bg-[#1ebd59] text-white font-bold h-12">
+                        <MessageCircle className="h-5 w-5 mr-2" /> Send Proof via WhatsApp
+                    </Button>
+                    <Button variant="ghost" onClick={() => onOpenChange(false)} className="w-full mt-2">Close</Button>
+                </DialogFooter>
+            </>
         )}
-
-        {/* VIEW 2: SUCCESS & NOTIFY */}
-        {isSuccess && (
-          <>
-            <div className="py-6 flex flex-col items-center text-center space-y-4">
-              <div className="h-16 w-16 bg-green-100 rounded-full flex items-center justify-center mb-2">
-                <CheckCircle2 className="h-10 w-10 text-green-600" />
-              </div>
-              <DialogTitle className="text-2xl text-green-700">Claim Recorded!</DialogTitle>
-              <p className="text-slate-500 max-w-xs">
-                Your payment is pending approval. Notify the admin now to speed up the process.
-              </p>
-            </div>
-
-            <DialogFooter className="flex-col space-y-2 sm:space-y-0">
-               <Button 
-                onClick={handleWhatsApp} 
-                className="w-full bg-[#25D366] hover:bg-[#1ebd59] text-white font-bold h-12 text-lg"
-              >
-                <MessageCircle className="h-5 w-5 mr-2" />
-                Notify Admin via WhatsApp
-              </Button>
-              <Button variant="ghost" onClick={handleClose} className="w-full mt-2">
-                Skip & Close
-              </Button>
-            </DialogFooter>
-          </>
-        )}
-
       </DialogContent>
     </Dialog>
   );

@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Users, Loader2, ShieldCheck, User, LogOut, Trash2, MoreVertical, ShieldPlus } from "lucide-react";
 import { useAuth } from "@/components/auth-provider";
 import { useToast } from "@/hooks/use-toast";
+import { formatCurrency } from "@/lib/utils"; 
 import { 
   getFirestore, 
   collection, 
@@ -18,7 +19,7 @@ import {
   deleteDoc,
   updateDoc,
   increment,
-  arrayRemove // ✅ Added this import
+  arrayRemove 
 } from "firebase/firestore";
 import { getFirebaseApp } from "@/lib/firebase/client";
 import {
@@ -31,16 +32,18 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 interface Member {
-  id: string; // The Member Document ID
-  userId: string; // The Actual User UID
+  id: string;
+  userId: string;
   displayName: string;
   role: 'admin' | 'member';
   joinedAt: any;
   email?: string;
   photoURL?: string; 
+  contributionBalanceCents?: number;
 }
 
-export function MembersList({ groupId }: { groupId: string }) {
+// ✅ FIX: Added currencySymbol to props
+export function MembersList({ groupId, currencySymbol = "$" }: { groupId: string, currencySymbol?: string }) {
   const { user } = useAuth(); 
   const { toast } = useToast();
   const router = useRouter();
@@ -61,7 +64,6 @@ export function MembersList({ groupId }: { groupId: string }) {
         ...d.data()
       })) as Member[];
 
-      // FETCH LIVE DATA
       const enrichedMembers = await Promise.all(basicMembers.map(async (member) => {
         try {
             const userSnap = await getDoc(doc(db, "users", member.userId));
@@ -82,36 +84,24 @@ export function MembersList({ groupId }: { groupId: string }) {
       setMembers(enrichedMembers);
       setLoading(false);
     }, (error) => {
-        console.log("Snapshot error (likely auth pending):", error);
+        console.log("Snapshot error:", error);
     });
 
     return () => unsubscribe();
   }, [groupId, user]);
 
-  const myMemberProfile = members.find(m => m.userId === user?.uid);
-  const amIAdmin = myMemberProfile?.role === 'admin';
-
-  // --- ACTIONS ---
-
-  // ✅ FIXED: Removes user from 'memberIds' array so group disappears from Dashboard
   const handleLeaveGroup = async () => {
     if (!user || !confirm("Are you sure you want to leave this group?")) return;
     setProcessingId("leave");
     try {
         const db = getFirestore(getFirebaseApp());
-        
-        // 1. Delete Member Record
         await deleteDoc(doc(db, "groups", groupId, "members", user.uid));
-        
-        // 2. Update Group (Decrement count AND remove ID from list)
         await updateDoc(doc(db, "groups", groupId), { 
             membersCount: increment(-1),
-            memberIds: arrayRemove(user.uid) // Critical Fix
+            memberIds: arrayRemove(user.uid) 
         });
-
         toast({ title: "Left Group", description: "You have successfully left the group." });
         router.push("/dashboard");
-
     } catch (error) {
         console.error(error);
         toast({ variant: "destructive", title: "Error", description: "Failed to leave." });
@@ -119,22 +109,16 @@ export function MembersList({ groupId }: { groupId: string }) {
     }
   };
 
-  // ✅ FIXED: Removes kicked member from 'memberIds' array too
   const handleRemoveMember = async (targetMemberId: string, memberName: string) => {
     if (!confirm(`Remove ${memberName}?`)) return;
     setProcessingId(targetMemberId);
     try {
         const db = getFirestore(getFirebaseApp());
-        
-        // 1. Delete Member Record
         await deleteDoc(doc(db, "groups", groupId, "members", targetMemberId));
-        
-        // 2. Update Group
         await updateDoc(doc(db, "groups", groupId), { 
             membersCount: increment(-1),
-            memberIds: arrayRemove(targetMemberId) // Critical Fix
+            memberIds: arrayRemove(targetMemberId)
         });
-
         toast({ title: "Removed", description: `${memberName} removed.` });
     } catch (error) {
         toast({ variant: "destructive", title: "Error", description: "Failed to remove." });
@@ -194,10 +178,16 @@ export function MembersList({ groupId }: { groupId: string }) {
                             <User className="w-3 h-3 mr-1" /> Member
                         </Badge>
                     )}
+                    {/* ✅ FIX: Display balance with correct symbol */}
+                    {member.contributionBalanceCents !== undefined && (
+                         <span className="text-[10px] text-slate-400 ml-1">
+                            • {formatCurrency(member.contributionBalanceCents, currencySymbol)}
+                         </span>
+                    )}
                 </div>
               </div>
             </div>
-            {amIAdmin && member.userId !== user?.uid && (
+            {members.find(m => m.userId === user?.uid)?.role === 'admin' && member.userId !== user?.uid && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400"><MoreVertical className="h-4 w-4" /></Button></DropdownMenuTrigger>
                   <DropdownMenuContent align="end">

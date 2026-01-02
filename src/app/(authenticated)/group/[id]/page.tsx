@@ -208,6 +208,9 @@ function GroupContent() {
   const isPending = subState.status === 'pending';
   const isLocked = subState.status === 'inactive' || subState.status === 'expired' || isPending;
   const isAdmin = currentMember?.role === 'admin';
+  
+  // ✅ HELPER: Get Global Currency
+  const currencySymbol = (group as any)?.currencySymbol || "$";
 
   const confirmReceipt = async () => {
     if (!pendingPayout || !group || !user) return;
@@ -235,7 +238,6 @@ function GroupContent() {
   };
   const categoryStyle = getCategoryStyle();
 
-  // ✅ HELPER: Get the correct invite code (fallback to ID substring for old groups)
   const getInviteCode = () => {
       if (!group) return "";
       return (group as any).inviteCode || group.id.substring(0,6).toUpperCase();
@@ -263,6 +265,8 @@ function GroupContent() {
   const renderFeeButtonText = () => {
       if (isPending) return "Payment Under Review";
       if (platformFee === 0) return "Activate Access (Free)";
+      // Platform fee is usually kept in USD ($), but we could match group currency if desired.
+      // For now, we keep Platform Fee in default ($) to separate Platform Costs from Group Ledger.
       return `Pay Platform Fee (${formatCurrency(platformFee)})`;
   };
 
@@ -295,7 +299,6 @@ function GroupContent() {
                 <div className="flex items-center gap-3 mt-3">
                     <div className="flex items-center gap-2 bg-slate-100 border border-slate-200 px-3 py-1 rounded-md">
                         <span className="text-xs font-bold text-slate-500 uppercase">Code:</span>
-                        {/* ✅ FIXED: Use getInviteCode() instead of ID substring */}
                         <span className="font-mono font-bold text-[#2C514C] tracking-wider text-sm">{getInviteCode()}</span>
                     </div>
                     <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-slate-400 hover:text-[#2C514C]" onClick={copyCode}><Copy className="h-4 w-4" /></Button>
@@ -316,7 +319,8 @@ function GroupContent() {
                     <CardTitle className="text-lg">Payment Incoming!</CardTitle>
                 </div>
                 <CardDescription className="text-green-700">
-                    The Admin has marked a payout of <strong>{formatCurrency(pendingPayout.amountCents)}</strong> to you.
+                    {/* ✅ GLOBAL: Display Payout in correct currency */}
+                    The Admin has marked a payout of <strong>{formatCurrency(pendingPayout.amountCents, currencySymbol)}</strong> to you.
                 </CardDescription>
             </CardHeader>
             <CardContent>
@@ -332,12 +336,16 @@ function GroupContent() {
       <div className={`grid grid-cols-1 md:grid-cols-3 gap-4 ${isLocked ? 'opacity-50 pointer-events-none blur-sm' : ''}`}>
         <Card className="bg-[#2C514C] text-white border-none shadow-lg w-full">
             <CardHeader className="py-4"><CardTitle className="text-slate-200 text-sm uppercase">Total Balance</CardTitle></CardHeader>
-            <CardContent className="pb-4 pt-0"><div className="text-3xl font-bold text-white truncate">{formatCurrency(group.currentBalanceCents || 0)}</div></CardContent>
+            <CardContent className="pb-4 pt-0">
+                {/* ✅ GLOBAL: Display Balance in correct currency */}
+                <div className="text-3xl font-bold text-white truncate">{formatCurrency(group.currentBalanceCents || 0, currencySymbol)}</div>
+            </CardContent>
         </Card>
         <Card className="bg-[#576066] text-white border-none shadow-lg w-full">
             <CardHeader className="py-4 flex flex-row items-center justify-between"><CardTitle className="text-slate-200 text-sm uppercase">My Contribution</CardTitle>{userProfile?.creditScore !== undefined && <CreditScoreBadge score={userProfile.creditScore} />}</CardHeader>
             <CardContent className="pb-4 pt-0">
-                <div className="text-3xl font-bold text-white truncate">{formatCurrency(currentMember?.contributionBalanceCents || 0)}</div>
+                {/* ✅ GLOBAL: Display Contribution in correct currency */}
+                <div className="text-3xl font-bold text-white truncate">{formatCurrency(currentMember?.contributionBalanceCents || 0, currencySymbol)}</div>
                 {nextDueDateDisplay && (<div className="mt-2 flex items-center gap-1.5 text-xs text-slate-300 font-medium bg-white/10 px-2 py-1 rounded w-fit"><CalendarClock className="w-3.5 h-3.5" /><span>Next Due: {nextDueDateDisplay}</span></div>)}
             </CardContent>
         </Card>
@@ -376,16 +384,19 @@ function GroupContent() {
       ) : (
         <Tabs defaultValue="ledger" className="w-full mt-4">
             <div className="w-full overflow-x-auto pb-2 scrollbar-hide"><TabsList className="w-auto inline-flex justify-start h-auto p-0 bg-transparent space-x-6"><TabsTrigger value="ledger" className="border-b-2 border-transparent data-[state=active]:border-[#2C514C] data-[state=active]:text-[#2C514C] pb-2 bg-transparent whitespace-nowrap font-medium text-slate-500">Ledger</TabsTrigger><TabsTrigger value="members" className="border-b-2 border-transparent data-[state=active]:border-[#2C514C] data-[state=active]:text-[#2C514C] pb-2 bg-transparent whitespace-nowrap font-medium text-slate-500">Members</TabsTrigger>{isAdmin && <TabsTrigger value="schedule" className="border-b-2 border-transparent data-[state=active]:border-[#2C514C] data-[state=active]:text-[#2C514C] pb-2 bg-transparent whitespace-nowrap font-medium text-slate-500">Schedule</TabsTrigger>}{isAdmin && <TabsTrigger value="admin" className="border-b-2 border-transparent data-[state=active]:border-[#2C514C] data-[state=active]:text-[#2C514C] pb-2 bg-transparent whitespace-nowrap font-medium text-slate-500">Admin Forms</TabsTrigger>}</TabsList></div>
-            <TabsContent value="ledger" className="mt-4 w-full"><div className="w-full overflow-x-auto border rounded-lg bg-white shadow-sm"><div className="min-w-[600px] md:min-w-full"><TransactionLedger groupId={group.id} /></div></div></TabsContent>
-            <TabsContent value="members" className="mt-4 w-full"><div className="w-full overflow-x-auto bg-white rounded-lg shadow-sm"><MembersList groupId={group.id} /></div></TabsContent>
-            {isAdmin && <TabsContent value="schedule" className="mt-4 w-full"><div className="w-full overflow-x-auto border rounded-lg bg-white shadow-sm"><div className="min-w-[600px] md:min-w-full"><PayoutScheduleTab groupId={group.id} /></div></div></TabsContent>}
+            
+            {/* ✅ GLOBAL: Pass currencySymbol to tabs */}
+            <TabsContent value="ledger" className="mt-4 w-full"><div className="w-full overflow-x-auto border rounded-lg bg-white shadow-sm"><div className="min-w-[600px] md:min-w-full"><TransactionLedger groupId={group.id} currencySymbol={currencySymbol} /></div></div></TabsContent>
+            <TabsContent value="members" className="mt-4 w-full"><div className="w-full overflow-x-auto bg-white rounded-lg shadow-sm"><MembersList groupId={group.id} currencySymbol={currencySymbol} /></div></TabsContent>
+            {isAdmin && <TabsContent value="schedule" className="mt-4 w-full"><div className="w-full overflow-x-auto border rounded-lg bg-white shadow-sm"><div className="min-w-[600px] md:min-w-full"><PayoutScheduleTab groupId={group.id} currencySymbol={currencySymbol} /></div></div></TabsContent>}
             {isAdmin && <TabsContent value="admin" className="mt-4 w-full"><div className="w-full overflow-x-auto bg-white rounded-lg shadow-sm"><AdminForms groupId={group.id} /></div></TabsContent>}
         </Tabs>
       )}
 
-      <ClaimPaymentDialog isOpen={isClaimOpen} onOpenChange={setIsClaimOpen} groupId={group.id} isSubscriptionLocked={isLocked} />
+      {/* ✅ GLOBAL: Pass currencySymbol to dialogs */}
+      <ClaimPaymentDialog isOpen={isClaimOpen} onOpenChange={setIsClaimOpen} groupId={group.id} isSubscriptionLocked={isLocked} currencySymbol={currencySymbol} />
       <PayFeeDialog isOpen={isPayFeeOpen} onOpenChange={setIsPayFeeOpen} groupId={group.id} />
-      <PayoutDialog isOpen={isPayoutOpen} onOpenChange={setIsPayoutOpen} groupId={group.id} />
+      <PayoutDialog isOpen={isPayoutOpen} onOpenChange={setIsPayoutOpen} groupId={group.id} currencySymbol={currencySymbol} />
     </div>
   );
 }
