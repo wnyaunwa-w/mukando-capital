@@ -1,6 +1,6 @@
 'use client';
 
-// FORCE REBUILD: Restoring the correct Blue Landing Page layout
+// FORCE REBUILD: Added FAQ Section
 // This comment ensures Vercel sees a file change and triggers a new deployment.
 
 import Image from "next/image";
@@ -8,6 +8,7 @@ import React from 'react';
 import Link from 'next/link';
 import { ShieldCheck, Users, TrendingUp, ArrowRight, Menu, Star, Facebook, Twitter, Instagram } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { LandingFAQ } from '@/components/landing-faq'; // ✅ IMPORTED FAQ COMPONENT
 
 export default function LandingPage() {
   return (
@@ -25,6 +26,7 @@ export default function LandingPage() {
           <nav className="hidden md:flex items-center gap-8">
             <Link href="#features" className="text-sm font-medium text-gray-600 hover:text-green-700 transition">Features</Link>
             <Link href="/about" className="text-sm font-medium text-gray-600 hover:text-green-700 transition">About Us</Link>
+            <Link href="#faq" className="text-sm font-medium text-gray-600 hover:text-green-700 transition">FAQ</Link> {/* Added FAQ Link */}
             <Link href="/contact" className="text-sm font-medium text-gray-600 hover:text-green-700 transition">Contact Us</Link>
           </nav>
 
@@ -203,6 +205,10 @@ export default function LandingPage() {
             </div>
           </div>
         </section>
+
+        {/* --- FAQ SECTION ADDED HERE --- */}
+        <LandingFAQ />
+
       </main>
 
       {/* --- Footer --- */}
