@@ -9,7 +9,10 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { 
-  ShieldAlert, Loader2, Plus, Minus, Banknote, ArrowLeft, Trash2
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger 
+} from "@/components/ui/dropdown-menu";
+import { 
+  ShieldAlert, Loader2, Plus, Minus, ArrowLeft, Trash2, Download, MoreHorizontal, Ban, CheckCircle, Globe 
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrency } from "@/lib/utils";
@@ -27,7 +30,7 @@ interface AdminGroup {
   id: string; name: string; membersCount: number; currentBalanceCents: number; status: string;
 }
 interface AdminUser {
-  uid: string; displayName: string; email: string; phoneNumber?: string; role?: string; status?: string; joinedAt?: any;
+  uid: string; displayName: string; email: string; phoneNumber?: string; role?: string; status?: string; country?: string; joinedAt?: any;
 }
 
 export default function SuperAdminPage() {
@@ -50,17 +53,24 @@ export default function SuperAdminPage() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        // Groups
+        // 1. Groups
         const groupsSnap = await getDocs(collection(db, "groups"));
         const groupsData: AdminGroup[] = [];
         let volume = 0;
         groupsSnap.forEach(doc => {
-            const d = doc.data(); volume += (d.currentBalanceCents || 0);
-            groupsData.push({ id: doc.id, name: d.name || "Unnamed", membersCount: d.membersCount || 0, currentBalanceCents: d.currentBalanceCents || 0, status: d.status || 'active' });
+            const d = doc.data(); 
+            volume += (d.currentBalanceCents || 0);
+            groupsData.push({ 
+                id: doc.id, 
+                name: d.name || "Unnamed", 
+                membersCount: d.membersCount || 0, 
+                currentBalanceCents: d.currentBalanceCents || 0, 
+                status: d.status || 'active' 
+            });
         });
         setGroupsList(groupsData);
 
-        // Users
+        // 2. Users
         const usersSnap = await getDocs(collection(db, "users"));
         const usersData: AdminUser[] = [];
         usersSnap.forEach(doc => {
@@ -68,11 +78,20 @@ export default function SuperAdminPage() {
             let safeName = d.displayName;
             if (!safeName && d.firstName && d.lastName) safeName = `${d.firstName} ${d.lastName}`;
             if (!safeName && d.email) safeName = d.email.split('@')[0];
-            usersData.push({ uid: doc.id, displayName: safeName || "User", email: d.email || "", phoneNumber: d.phoneNumber || "N/A", role: d.role || "member", status: d.status || "active", joinedAt: d.createdAt });
+            usersData.push({ 
+                uid: doc.id, 
+                displayName: safeName || "User", 
+                email: d.email || "", 
+                phoneNumber: d.phoneNumber || "N/A", 
+                country: d.country || "Unknown", // ✅ Added Country
+                role: d.role || "member", 
+                status: d.status || "active", 
+                joinedAt: d.createdAt 
+            });
         });
         setUsersList(usersData);
 
-        // Fees
+        // 3. Fees
         const qFees = query(collection(db, "fee_requests"), orderBy("createdAt", "desc"));
         const feesSnap = await getDocs(qFees);
         const requests: FeeRequest[] = [];
@@ -85,7 +104,7 @@ export default function SuperAdminPage() {
 
         setStats({ totalGroups: groupsSnap.size, totalVolumeCents: volume, activeSubs: approvedCount, totalEarningsCents: earnings });
 
-        // Settings
+        // 4. Settings
         const settingsSnap = await getDoc(doc(db, "settings", "global"));
         if (settingsSnap.exists()) {
             const d = settingsSnap.data();
@@ -98,6 +117,7 @@ export default function SuperAdminPage() {
 
   // --- ACTIONS ---
 
+  // 1. Fee Management
   const handleFeeAction = async (req: FeeRequest, action: 'approved' | 'rejected') => {
     try {
         await updateDoc(doc(db, "fee_requests", req.id), { status: action });
@@ -110,6 +130,7 @@ export default function SuperAdminPage() {
     } catch (e) { toast({ variant: "destructive", title: "Error" }); }
   };
 
+  // 2. Platform Fee
   const savePlatformFee = async () => {
     setSavingFee(true);
     try {
@@ -118,33 +139,56 @@ export default function SuperAdminPage() {
     } catch (e) { toast({ variant: "destructive", title: "Error" }); } finally { setSavingFee(false); }
   };
 
-  // ✅ FIXED: Delete Group Logic
+  // 3. Group Actions (Suspend/Delete)
+  const toggleGroupStatus = async (group: AdminGroup) => {
+      const newStatus = group.status === 'active' ? 'suspended' : 'active';
+      try {
+          await updateDoc(doc(db, "groups", group.id), { status: newStatus });
+          setGroupsList(prev => prev.map(g => g.id === group.id ? { ...g, status: newStatus } : g));
+          toast({ title: "Success", description: `Group marked as ${newStatus}.` });
+      } catch (e) { toast({ variant: "destructive", title: "Error" }); }
+  };
+
   const deleteGroup = async (groupId: string) => {
-    if (!window.confirm("Are you sure you want to delete this group? This cannot be undone.")) return;
+    if (!window.confirm("Are you sure? This cannot be undone.")) return;
     try {
         await deleteDoc(doc(db, "groups", groupId));
-        // Update UI immediately
         setGroupsList(prev => prev.filter(g => g.id !== groupId));
         setStats(prev => ({ ...prev, totalGroups: prev.totalGroups - 1 }));
         toast({ title: "Group Deleted" });
-    } catch (error) {
-        console.error(error);
-        toast({ variant: "destructive", title: "Delete Failed", description: "Check permissions." });
-    }
+    } catch (error) { toast({ variant: "destructive", title: "Delete Failed" }); }
   };
 
-  // ✅ FIXED: Delete User Logic
+  // 4. User Actions (Block/Delete)
+  const toggleUserStatus = async (user: AdminUser) => {
+      const newStatus = user.status === 'active' ? 'suspended' : 'active';
+      try {
+          await updateDoc(doc(db, "users", user.uid), { status: newStatus });
+          setUsersList(prev => prev.map(u => u.uid === user.uid ? { ...u, status: newStatus } : u));
+          toast({ title: "Success", description: `User ${newStatus === 'suspended' ? 'blocked' : 'activated'}.` });
+      } catch (e) { toast({ variant: "destructive", title: "Error" }); }
+  };
+
   const deleteUser = async (userId: string) => {
-    if (!window.confirm("Are you sure you want to delete this user?")) return;
+    if (!window.confirm("Are you sure? This deletes the user's profile.")) return;
     try {
         await deleteDoc(doc(db, "users", userId));
-        // Update UI immediately
         setUsersList(prev => prev.filter(u => u.uid !== userId));
         toast({ title: "User Deleted" });
-    } catch (error) {
-        console.error(error);
-        toast({ variant: "destructive", title: "Delete Failed", description: "Check permissions." });
-    }
+    } catch (error) { toast({ variant: "destructive", title: "Delete Failed" }); }
+  };
+
+  // 5. CSV Export
+  const downloadCSV = (data: any[], filename: string) => {
+      if (!data || data.length === 0) { toast({ title: "No Data" }); return; }
+      const headers = Object.keys(data[0]);
+      const rows = data.map(obj => headers.map(header => `"${String(obj[header]).replace(/"/g, '""')}"`).join(","));
+      const csvContent = [headers.join(","), ...rows].join("\n");
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = `${filename}_${new Date().toISOString().split('T')[0]}.csv`;
+      link.click();
   };
 
   const pendingRequests = feeRequests.filter(r => r.status === 'pending');
@@ -158,6 +202,7 @@ export default function SuperAdminPage() {
         <h1 className="text-2xl md:text-3xl font-bold text-[#122932] flex items-center gap-2"><ShieldAlert className="h-6 w-6 text-red-700" /> Super Admin</h1>
       </div>
 
+      {/* STATS */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
         <Card className="bg-[#122932] text-white border-none shadow-md"><CardHeader className="pb-2 pt-4 px-4"><CardTitle className="text-xs font-medium text-slate-300 uppercase">Groups</CardTitle><div className="text-2xl font-bold">{stats.totalGroups}</div></CardHeader></Card>
         <Card className="bg-[#2f6f3e] text-white border-none shadow-md"><CardHeader className="pb-2 pt-4 px-4"><CardTitle className="text-xs font-medium text-slate-200 uppercase">Volume</CardTitle><div className="text-2xl font-bold">{formatCurrency(stats.totalVolumeCents)}</div></CardHeader></Card>
@@ -176,27 +221,38 @@ export default function SuperAdminPage() {
       <Tabs defaultValue="fees" className="w-full">
         <div className="overflow-x-auto pb-2 -mx-1 px-1"><TabsList className="bg-white border w-full justify-start min-w-[350px]"><TabsTrigger value="fees">Fees {pendingRequests.length > 0 && <Badge className="ml-2 bg-red-600">{pendingRequests.length}</Badge>}</TabsTrigger><TabsTrigger value="groups">Groups</TabsTrigger><TabsTrigger value="users">Users</TabsTrigger><TabsTrigger value="scores">Scores</TabsTrigger></TabsList></div>
         
+        {/* FEES TAB */}
         <TabsContent value="fees" className="space-y-4">
-            <Card><CardHeader className="px-4 py-4"><CardTitle className="text-lg">Pending</CardTitle></CardHeader><CardContent className="px-4 pb-4">{pendingRequests.length === 0 ? <div className="text-center py-8 text-slate-500">No requests</div> : pendingRequests.map(req => <div key={req.id} className="flex justify-between items-center p-3 border rounded mb-2"><div><div className="font-bold">{req.userDisplayName}</div><div className="text-sm font-mono">{req.refNumber}</div></div><div className="flex gap-2"><Button size="sm" variant="ghost" className="text-red-600" onClick={() => handleFeeAction(req, 'rejected')}>Reject</Button><Button size="sm" className="bg-green-700" onClick={() => handleFeeAction(req, 'approved')}>Approve</Button></div></div>)}</CardContent></Card>
+            <Card><CardHeader className="px-4 py-4"><CardTitle className="text-lg">Pending Requests</CardTitle></CardHeader><CardContent className="px-4 pb-4">{pendingRequests.length === 0 ? <div className="text-center py-8 text-slate-500">No requests</div> : pendingRequests.map(req => <div key={req.id} className="flex justify-between items-center p-3 border rounded mb-2"><div><div className="font-bold">{req.userDisplayName}</div><div className="text-sm font-mono">{req.refNumber}</div></div><div className="flex gap-2"><Button size="sm" variant="ghost" className="text-red-600" onClick={() => handleFeeAction(req, 'rejected')}>Reject</Button><Button size="sm" className="bg-green-700" onClick={() => handleFeeAction(req, 'approved')}>Approve</Button></div></div>)}</CardContent></Card>
         </TabsContent>
         
+        {/* GROUPS TAB */}
         <TabsContent value="groups">
             <Card>
-                <CardHeader className="px-4 py-4"><CardTitle className="text-lg">Groups</CardTitle></CardHeader>
+                <CardHeader className="px-4 py-4 flex flex-row items-center justify-between">
+                    <CardTitle className="text-lg">Groups Management</CardTitle>
+                    <Button variant="outline" size="sm" onClick={() => downloadCSV(groupsList, "groups_export")}>
+                        <Download className="w-4 h-4 mr-2" /> CSV
+                    </Button>
+                </CardHeader>
                 <CardContent className="p-0">
                     <div className="overflow-x-auto">
                         <table className="w-full text-sm text-left">
-                            <thead className="bg-slate-100 border-b"><tr><th className="p-3">Name</th><th className="p-3">Status</th><th className="p-3">Action</th></tr></thead>
+                            <thead className="bg-slate-100 border-b"><tr><th className="p-3">Name</th><th className="p-3">Status</th><th className="p-3 text-right">Action</th></tr></thead>
                             <tbody>
                                 {groupsList.map(g => (
                                     <tr key={g.id} className="border-b">
                                         <td className="p-3">{g.name}</td>
-                                        <td className="p-3"><Badge variant="outline">{g.status}</Badge></td>
-                                        {/* ✅ Connected deleteGroup function */}
-                                        <td className="p-3">
-                                            <Button size="sm" variant="ghost" onClick={() => deleteGroup(g.id)}>
-                                                <Trash2 className="h-4 w-4 text-red-500" />
-                                            </Button>
+                                        <td className="p-3"><Badge variant={g.status === 'active' ? 'default' : 'destructive'} className={g.status === 'active' ? 'bg-green-600' : ''}>{g.status}</Badge></td>
+                                        <td className="p-3 text-right">
+                                            <DropdownMenu>
+                                                <DropdownMenuTrigger asChild><Button variant="ghost" size="sm"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
+                                                <DropdownMenuContent align="end">
+                                                    <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                                                    <DropdownMenuItem onClick={() => toggleGroupStatus(g)}>{g.status === 'active' ? <><Ban className="mr-2 h-4 w-4" /> Suspend</> : <><CheckCircle className="mr-2 h-4 w-4" /> Activate</>}</DropdownMenuItem>
+                                                    <DropdownMenuItem className="text-red-600" onClick={() => deleteGroup(g.id)}><Trash2 className="mr-2 h-4 w-4" /> Delete</DropdownMenuItem>
+                                                </DropdownMenuContent>
+                                            </DropdownMenu>
                                         </td>
                                     </tr>
                                 ))}
@@ -207,23 +263,35 @@ export default function SuperAdminPage() {
             </Card>
         </TabsContent>
         
+        {/* USERS TAB */}
         <TabsContent value="users">
             <Card>
-                <CardHeader className="px-4 py-4"><CardTitle className="text-lg">Users</CardTitle></CardHeader>
+                <CardHeader className="px-4 py-4 flex flex-row items-center justify-between">
+                    <CardTitle className="text-lg">Users Management</CardTitle>
+                    <Button variant="outline" size="sm" onClick={() => downloadCSV(usersList, "users_export")}>
+                        <Download className="w-4 h-4 mr-2" /> CSV
+                    </Button>
+                </CardHeader>
                 <CardContent className="p-0">
                     <div className="overflow-x-auto">
                         <table className="w-full text-sm text-left">
-                            <thead className="bg-slate-100 border-b"><tr><th className="p-3">Name</th><th className="p-3">Email</th><th className="p-3">Action</th></tr></thead>
+                            <thead className="bg-slate-100 border-b"><tr><th className="p-3">Name</th><th className="p-3">Email</th><th className="p-3">Country</th><th className="p-3">Status</th><th className="p-3 text-right">Action</th></tr></thead>
                             <tbody>
                                 {usersList.map(u => (
                                     <tr key={u.uid} className="border-b">
                                         <td className="p-3">{u.displayName}</td>
                                         <td className="p-3">{u.email}</td>
-                                        {/* ✅ Connected deleteUser function */}
-                                        <td className="p-3">
-                                            <Button size="sm" variant="ghost" onClick={() => deleteUser(u.uid)}>
-                                                <Trash2 className="h-4 w-4 text-red-500" />
-                                            </Button>
+                                        <td className="p-3"><div className="flex items-center gap-1"><Globe className="w-3 h-3 text-slate-400" />{u.country || "Unknown"}</div></td>
+                                        <td className="p-3"><Badge variant={u.status === 'active' ? 'outline' : 'destructive'}>{u.status}</Badge></td>
+                                        <td className="p-3 text-right">
+                                            <DropdownMenu>
+                                                <DropdownMenuTrigger asChild><Button variant="ghost" size="sm"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
+                                                <DropdownMenuContent align="end">
+                                                    <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                                                    <DropdownMenuItem onClick={() => toggleUserStatus(u)}>{u.status === 'active' ? <><Ban className="mr-2 h-4 w-4" /> Block</> : <><CheckCircle className="mr-2 h-4 w-4" /> Unblock</>}</DropdownMenuItem>
+                                                    <DropdownMenuItem className="text-red-600" onClick={() => deleteUser(u.uid)}><Trash2 className="mr-2 h-4 w-4" /> Delete</DropdownMenuItem>
+                                                </DropdownMenuContent>
+                                            </DropdownMenu>
                                         </td>
                                     </tr>
                                 ))}
