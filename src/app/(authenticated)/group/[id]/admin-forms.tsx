@@ -15,14 +15,13 @@ import {
   Loader2, XCircle, AlertCircle, Settings, CheckCircle2 
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { format } from "date-fns";
 import { 
   getFirestore, doc, updateDoc, collection, getDocs, getDoc, setDoc,
   addDoc, serverTimestamp, query, where, increment, onSnapshot 
 } from "firebase/firestore";
 import { getFirebaseApp } from "@/lib/firebase/client";
 import { formatCurrency } from "@/lib/utils";
-import { logActivity } from "@/lib/services/audit-service"; // ✅ Re-added Audit
+import { logActivity } from "@/lib/services/audit-service";
 import { useAuth } from "@/components/auth-provider";
 
 // --- INTERFACES ---
@@ -43,7 +42,7 @@ interface PendingTransaction {
   status?: string;
 }
 
-// ✅ FIX: Added currencySymbol prop
+// ✅ FIX: Added currencySymbol prop with default "$"
 export function AdminForms({ groupId, currencySymbol = "$" }: { groupId: string, currencySymbol?: string }) {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -88,11 +87,11 @@ export function AdminForms({ groupId, currencySymbol = "$" }: { groupId: string,
     fetchStaticData();
   }, [groupId, db]);
 
-  // --- 2. LISTEN FOR TRANSACTIONS (FIXED QUERY) ---
+  // --- 2. LISTEN FOR TRANSACTIONS ---
   useEffect(() => {
     if (!groupId) return;
     
-    // ✅ FIX: Look for 'pending_confirmation' which is what the user submits
+    // ✅ FIX: Query both 'pending' AND 'pending_confirmation' to catch everything
     const qTx = query(
         collection(db, 'groups', groupId, 'transactions'), 
         where('status', 'in', ['pending', 'pending_confirmation'])
@@ -102,12 +101,10 @@ export function AdminForms({ groupId, currencySymbol = "$" }: { groupId: string,
         const txs = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as PendingTransaction));
         setPendingTx(txs);
         
-        // Pre-fill confirmation dates
         setTxDates(prev => {
             const next = { ...prev };
             txs.forEach(tx => { 
                 if (!next[tx.id]) {
-                    // Use timestamp if available, else today
                     next[tx.id] = tx.date || new Date().toISOString().split('T')[0]; 
                 }
             });
@@ -302,7 +299,7 @@ export function AdminForms({ groupId, currencySymbol = "$" }: { groupId: string,
                     <div className="flex-1">
                         <div className="font-bold text-slate-900 text-lg">{tx.userDisplayName}</div>
                         <div className="text-sm text-slate-500 mb-2">{tx.description || "Payment Claim"}</div>
-                        {/* ✅ FIX: Use currency symbol */}
+                        {/* ✅ FIX: Use currency symbol in display */}
                         <div className="font-bold text-[#2C514C] text-xl">{formatCurrency(tx.amountCents, currencySymbol)}</div>
                     </div>
                     <div className="flex flex-col gap-1.5 w-full md:w-auto">
@@ -328,6 +325,7 @@ export function AdminForms({ groupId, currencySymbol = "$" }: { groupId: string,
                 <div className="space-y-2"><Label>Member</Label><Select onValueChange={setSelectedMemberId} value={selectedMemberId}><SelectTrigger><SelectValue placeholder="Select..." /></SelectTrigger><SelectContent>{members.map(m => <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>)}</SelectContent></Select></div>
                 
                 <div className="space-y-2">
+                    {/* ✅ FIX: Use currency symbol label */}
                     <Label>Amount ({currencySymbol})</Label>
                     <div className="relative">
                         <span className="absolute left-3 top-2.5 text-slate-500 font-bold">{currencySymbol}</span>

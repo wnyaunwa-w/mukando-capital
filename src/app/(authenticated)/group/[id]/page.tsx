@@ -389,7 +389,7 @@ function GroupContent() {
             <TabsContent value="ledger" className="mt-4 w-full"><div className="w-full overflow-x-auto border rounded-lg bg-white shadow-sm"><div className="min-w-[600px] md:min-w-full"><TransactionLedger groupId={group.id} currencySymbol={currencySymbol} /></div></div></TabsContent>
             <TabsContent value="members" className="mt-4 w-full"><div className="w-full overflow-x-auto bg-white rounded-lg shadow-sm"><MembersList groupId={group.id} currencySymbol={currencySymbol} /></div></TabsContent>
             {isAdmin && <TabsContent value="schedule" className="mt-4 w-full"><div className="w-full overflow-x-auto border rounded-lg bg-white shadow-sm"><div className="min-w-[600px] md:min-w-full"><PayoutScheduleTab groupId={group.id} currencySymbol={currencySymbol} /></div></div></TabsContent>}
-            {isAdmin && <TabsContent value="admin" className="mt-4 w-full"><div className="w-full overflow-x-auto bg-white rounded-lg shadow-sm"><AdminForms groupId={group.id} /></div></TabsContent>}
+            {isAdmin && <TabsContent value="admin" className="mt-4 w-full"><div className="w-full overflow-x-auto bg-white rounded-lg shadow-sm"><AdminForms groupId={group.id} currencySymbol={currencySymbol} /></div></TabsContent>}
         </Tabs>
       )}
 
