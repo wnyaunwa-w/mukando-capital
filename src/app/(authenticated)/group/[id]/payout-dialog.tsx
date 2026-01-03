@@ -1,4 +1,4 @@
-"use client";
+ "use client";
 
 import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, ArrowRightLeft, Building2, Phone, Copy, CheckCircle2 } from "lucide-react"; 
+import { Loader2, ArrowRightLeft, Building2, Phone, Copy, CheckCircle2, Wallet } from "lucide-react"; 
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrency } from "@/lib/utils";
 import { 
@@ -38,11 +38,11 @@ export function PayoutDialog({ isOpen, onOpenChange, groupId, currencySymbol = "
   
   const [members, setMembers] = useState<{id: string, name: string}[]>([]);
   const [selectedMemberId, setSelectedMemberId] = useState("");
-  const [memberProfile, setMemberProfile] = useState<any>(null); // Stores the fetched bank details
+  const [memberProfile, setMemberProfile] = useState<any>(null); 
   const [amount, setAmount] = useState("");
   const [copied, setCopied] = useState(false);
 
-  // 1. Fetch Group Members (for the dropdown)
+  // 1. Fetch Group Members
   useEffect(() => {
     if (isOpen) {
         const fetchMembers = async () => {
@@ -52,14 +52,13 @@ export function PayoutDialog({ isOpen, onOpenChange, groupId, currencySymbol = "
             setMembers(list);
         };
         fetchMembers();
-        // Reset state on open
         setMemberProfile(null);
         setSelectedMemberId("");
         setAmount("");
     }
   }, [isOpen, groupId]);
 
-  // 2. Fetch Specific User Profile (When Admin selects a member)
+  // 2. Fetch User Profile
   useEffect(() => {
     if (!selectedMemberId) {
         setMemberProfile(null);
@@ -84,13 +83,14 @@ export function PayoutDialog({ isOpen, onOpenChange, groupId, currencySymbol = "
     fetchPayeeDetails();
   }, [selectedMemberId]);
 
-  // Helper to copy details to clipboard
+  // Copy Helper
   const copyToClipboard = () => {
     if (!memberProfile) return;
     const details = `
       Pay To: ${memberProfile.displayName}
       Bank: ${memberProfile.bankName || "N/A"}
       Acc: ${memberProfile.accountNumber || "N/A"}
+      Sort Code: ${memberProfile.sortCode || "N/A"}
       Phone: ${memberProfile.phoneNumber || "N/A"}
     `;
     navigator.clipboard.writeText(details);
@@ -107,7 +107,6 @@ export function PayoutDialog({ isOpen, onOpenChange, groupId, currencySymbol = "
     try {
       const targetMember = members.find(m => m.id === selectedMemberId);
 
-      // 1. Create Payout Record
       await addDoc(collection(db, "groups", groupId, "transactions"), {
         userId: selectedMemberId, 
         userDisplayName: targetMember?.name || "Member",
@@ -118,7 +117,6 @@ export function PayoutDialog({ isOpen, onOpenChange, groupId, currencySymbol = "
         initiatedBy: user.uid
       });
 
-      // 2. Log Activity
       await logActivity({
         groupId,
         action: "PAYOUT_INITIATED" as any, 
@@ -151,7 +149,6 @@ export function PayoutDialog({ isOpen, onOpenChange, groupId, currencySymbol = "
 
         <div className="space-y-4 py-4">
             
-            {/* Member Selection */}
             <div className="space-y-2">
                 <Label>Select Beneficiary</Label>
                 <Select value={selectedMemberId} onValueChange={setSelectedMemberId}>
@@ -164,52 +161,75 @@ export function PayoutDialog({ isOpen, onOpenChange, groupId, currencySymbol = "
                 </Select>
             </div>
 
-            {/* --- PAYOUT DETAILS CARD (The "Secret" Reveal) --- */}
+            {/* --- SECURE DETAILS CARD --- */}
             {fetchingProfile ? (
                 <div className="flex items-center justify-center py-4 text-slate-500 gap-2">
                     <Loader2 className="w-4 h-4 animate-spin" /> Fetching secure details...
                 </div>
             ) : memberProfile && (
-                <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 space-y-3 text-sm animate-in fade-in slide-in-from-top-2">
-                    <div className="flex justify-between items-start">
-                        <span className="font-bold text-slate-700">Payment Details</span>
-                        <Button variant="ghost" size="sm" className="h-6 px-2 text-slate-500" onClick={copyToClipboard}>
+                <div className="bg-slate-50 border border-slate-200 rounded-lg overflow-hidden animate-in fade-in slide-in-from-top-2">
+                    
+                    {/* Header with Copy Button */}
+                    <div className="bg-slate-100 px-4 py-2 border-b border-slate-200 flex justify-between items-center">
+                        <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Banking Details</span>
+                        <Button variant="ghost" size="sm" className="h-6 px-2 text-slate-500 hover:text-slate-800" onClick={copyToClipboard}>
                             {copied ? <CheckCircle2 className="w-3.5 h-3.5 text-green-600 mr-1" /> : <Copy className="w-3.5 h-3.5 mr-1" />}
                             {copied ? "Copied" : "Copy"}
                         </Button>
                     </div>
 
-                    {/* Bank Section (For Diaspora) */}
-                    {(memberProfile.bankName || memberProfile.accountNumber) && (
-                        <div className="grid grid-cols-1 gap-1">
-                            <div className="flex items-center gap-2 text-slate-600">
-                                <Building2 className="w-3.5 h-3.5" /> 
-                                <span className="font-semibold">{memberProfile.bankName}</span>
+                    <div className="p-4 space-y-4">
+                        {/* 1. BANK ACCOUNT SECTION */}
+                        {(memberProfile.bankName || memberProfile.accountNumber) ? (
+                             <div className="grid gap-3">
+                                <div className="grid grid-cols-3 gap-2 items-center">
+                                    <span className="text-xs font-medium text-slate-500">Bank Name</span>
+                                    <div className="col-span-2 font-semibold text-slate-800 flex items-center gap-2">
+                                        <Building2 className="w-3.5 h-3.5 text-slate-400" />
+                                        {memberProfile.bankName}
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-3 gap-2 items-center">
+                                    <span className="text-xs font-medium text-slate-500">Account No.</span>
+                                    <div className="col-span-2 font-mono font-bold text-slate-900 bg-white px-2 py-1 rounded border border-slate-200 inline-block">
+                                        {memberProfile.accountNumber}
+                                    </div>
+                                </div>
+                                {memberProfile.sortCode && (
+                                    <div className="grid grid-cols-3 gap-2 items-center">
+                                        <span className="text-xs font-medium text-slate-500">Sort Code</span>
+                                        <div className="col-span-2 font-mono text-slate-700">
+                                            {memberProfile.sortCode}
+                                        </div>
+                                    </div>
+                                )}
+                             </div>
+                        ) : (
+                            <div className="text-sm text-slate-400 italic flex items-center gap-2">
+                                <Wallet className="w-4 h-4" /> No bank account linked.
                             </div>
-                            <div className="pl-6 text-slate-500 font-mono">
-                                {memberProfile.accountNumber}
-                                {memberProfile.sortCode && <span className="ml-2 text-xs text-slate-400">({memberProfile.sortCode})</span>}
-                            </div>
-                        </div>
-                    )}
+                        )}
 
-                    {/* Phone/Mobile Money Section (For Zimbabwe) */}
-                    <div className="grid grid-cols-1 gap-1">
-                        <div className="flex items-center gap-2 text-slate-600">
-                            <Phone className="w-3.5 h-3.5" />
-                            <span className="font-semibold">Mobile / Cash Contact</span>
+                        {/* Divider */}
+                        <div className="border-t border-slate-200"></div>
+
+                        {/* 2. MOBILE / CONTACT SECTION */}
+                        <div className="grid grid-cols-3 gap-2 items-start">
+                            <span className="text-xs font-medium text-slate-500 mt-1">Mobile / Cash</span>
+                            <div className="col-span-2">
+                                <div className="font-bold text-slate-800 flex items-center gap-2">
+                                    <Phone className="w-3.5 h-3.5 text-slate-400" />
+                                    {memberProfile.phoneNumber || "N/A"}
+                                </div>
+                                <p className="text-[10px] text-slate-400 mt-1 leading-tight">
+                                    Use for EcoCash, Innbucks, or arranging cash meetup.
+                                </p>
+                            </div>
                         </div>
-                        <div className="pl-6 text-slate-800 font-bold tracking-wide">
-                            {memberProfile.phoneNumber || "No phone number set"}
-                        </div>
-                        <p className="pl-6 text-xs text-slate-400">
-                            Use this for EcoCash, Innbucks, or arranging cash meetup.
-                        </p>
                     </div>
                 </div>
             )}
 
-            {/* Amount Input */}
             <div className="space-y-2">
                 <Label>Payout Amount ({currencySymbol})</Label>
                 <Input 
