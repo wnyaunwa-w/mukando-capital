@@ -74,31 +74,55 @@ export function AdminForms({ groupId, currencySymbol = "$" }: { groupId: string,
   // --- 1. FETCH MEMBERS & SETTINGS ---
   useEffect(() => {
     if (!groupId) return;
+    
     const fetchStaticData = async () => {
+      // A. Settings
       try {
         const groupDoc = await getDoc(doc(db, "groups", groupId));
         if (groupDoc.exists()) {
             const data = groupDoc.data();
             if (data.paymentDueDay) setDueDay(data.paymentDueDay.toString());
-            // Pre-fill amount from group settings if available
             if (data.contributionAmountCents) setEstimatedAmount((data.contributionAmountCents / 100).toString());
         }
       } catch (e) { console.error(e); }
       
+      // B. Members (With Enrichment)
       try {
         const membersRef = collection(db, "groups", groupId, "members");
         const snapshot = await getDocs(membersRef);
-        const fullMembers = snapshot.docs.map(doc => ({ 
-            id: doc.id, 
-            name: doc.data().displayName || "Member", 
-            email: "", 
-            role: doc.data().role 
+        
+        // Fetch real names from 'users' collection
+        const enrichedMembers = await Promise.all(snapshot.docs.map(async (d) => {
+            const mData = d.data();
+            let realName = mData.displayName || "Member";
+            
+            // Try to fetch latest profile
+            try {
+                const userSnap = await getDoc(doc(db, "users", d.id));
+                if (userSnap.exists() && userSnap.data().displayName) {
+                    realName = userSnap.data().displayName;
+                }
+            } catch (err) { console.error("Profile fetch error", err); }
+
+            return { 
+                id: d.id, 
+                name: realName, 
+                email: "", 
+                role: mData.role 
+            };
         }));
-        setMembers(fullMembers);
-        // Initialize rotation list with current members
-        setScheduleMembers(fullMembers.map(m => ({ userId: m.id, displayName: m.name, role: m.role || 'member' })));
+
+        setMembers(enrichedMembers);
+        
+        // Only initialize schedule if it's empty (to avoid overwriting user re-ordering)
+        setScheduleMembers(prev => {
+            if (prev.length > 0) return prev;
+            return enrichedMembers.map(m => ({ userId: m.id, displayName: m.name, role: m.role || 'member' }));
+        });
+
       } catch (e) { console.error(e); }
     };
+
     fetchStaticData();
   }, [groupId, db]);
 
@@ -288,7 +312,7 @@ export function AdminForms({ groupId, currencySymbol = "$" }: { groupId: string,
         </CardContent>
       </Card>
       
-      {/* 2. ROTATIONAL PICKER (NEW FEATURE) */}
+      {/* 2. ROTATIONAL PICKER */}
       <Separator />
       <Card className="border-indigo-100 bg-indigo-50/30">
         <CardHeader>
