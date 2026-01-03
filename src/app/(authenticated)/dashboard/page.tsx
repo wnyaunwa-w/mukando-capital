@@ -14,7 +14,7 @@ import {
   getDoc, 
   doc, 
   where,
-  collection // ✅ Changed from collectionGroup
+  collection 
 } from "firebase/firestore";
 import { getFirebaseApp } from "@/lib/firebase/client";
 import Link from "next/link";
@@ -32,6 +32,7 @@ interface DashboardGroup {
   memberCount: number;
   role: string;
   status?: string; 
+  currencySymbol?: string; // ✅ Added to track individual group currency
 }
 
 export default function DashboardPage() {
@@ -39,7 +40,11 @@ export default function DashboardPage() {
   const router = useRouter();
   const [groups, setGroups] = useState<DashboardGroup[]>([]);
   const [loading, setLoading] = useState(true);
+  
+  // Stats
   const [totalSavings, setTotalSavings] = useState(0);
+  const [userCurrency, setUserCurrency] = useState("$"); // ✅ Default to $ until profile loads
+  
   const [nextPayoutDate, setNextPayoutDate] = useState<string>("--/--");
   const [creditScore, setCreditScore] = useState<number>(400);
   const [isProfileComplete, setIsProfileComplete] = useState(true);
@@ -50,12 +55,19 @@ export default function DashboardPage() {
       const db = getFirestore(getFirebaseApp());
       
       try {
-          // 1. User Profile
+          // 1. User Profile (Get Currency Preference)
           const userRef = doc(db, "users", user.uid);
           const userSnap = await getDoc(userRef);
+          
           if (userSnap.exists()) {
               const data = userSnap.data();
               setCreditScore(data.creditScore !== undefined ? data.creditScore : 400);
+              
+              // ✅ Set User's Currency Preference (e.g. £ or R)
+              if (data.currencySymbol) {
+                  setUserCurrency(data.currencySymbol);
+              }
+
               const hasName = data.displayName && data.displayName.trim().length > 0;
               const hasPhone = data.phoneNumber && data.phoneNumber.trim().length > 0;
               setIsProfileComplete(hasName && hasPhone);
@@ -64,9 +76,8 @@ export default function DashboardPage() {
               setIsProfileComplete(false);
           }
 
-          // 2. Fetch Groups (New Query Logic: array-contains)
+          // 2. Fetch Groups
           const groupsRef = collection(db, "groups");
-          // ✅ Query top-level groups where memberIds contains user.uid
           const myGroupsQuery = query(groupsRef, where("memberIds", "array-contains", user.uid));
           const groupsSnapshot = await getDocs(myGroupsQuery);
           
@@ -75,15 +86,12 @@ export default function DashboardPage() {
           const groupPromises = groupsSnapshot.docs.map(async (groupDoc) => {
              const gData = groupDoc.data();
              
-             // Check Status
              if (gData.status === 'suspended' || gData.status === 'archived') return null;
 
-             // Fetch MY member details for this group (to get myContribution & role)
              const memberRef = doc(db, "groups", groupDoc.id, "members", user.uid);
              const memberSnap = await getDoc(memberRef);
              const mData = memberSnap.exists() ? memberSnap.data() : { contributionBalanceCents: 0, role: 'member' };
 
-             // Payout Logic
              if (gData.payoutSchedule && Array.isArray(gData.payoutSchedule)) {
                 const mySlots = gData.payoutSchedule.filter((slot: any) => 
                     slot.userId === user.uid && slot.status === 'pending'
@@ -99,7 +107,8 @@ export default function DashboardPage() {
                  memberCount: gData.membersCount || 0,
                  myContribution: mData.contributionBalanceCents || 0,
                  role: mData.role,
-                 status: gData.status
+                 status: gData.status,
+                 currencySymbol: gData.currencySymbol || "$" // ✅ Store group's specific symbol
              } as DashboardGroup;
           });
 
@@ -166,7 +175,14 @@ export default function DashboardPage() {
       </Card>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-emerald-50 p-6 rounded-2xl shadow-sm border border-emerald-100"><div className="flex justify-between items-start mb-4"><div className="p-2 bg-white rounded-lg shadow-sm"><Wallet className="w-6 h-6 text-emerald-700" /></div></div><p className="text-sm text-emerald-800 font-medium">Total Savings</p><h3 className="text-3xl font-bold text-emerald-900 mt-1">{formatCurrency(totalSavings)}</h3></div>
+        <div className="bg-emerald-50 p-6 rounded-2xl shadow-sm border border-emerald-100">
+            <div className="flex justify-between items-start mb-4">
+                <div className="p-2 bg-white rounded-lg shadow-sm"><Wallet className="w-6 h-6 text-emerald-700" /></div>
+            </div>
+            <p className="text-sm text-emerald-800 font-medium">Total Savings</p>
+            {/* ✅ SHOW USER'S PREFERRED CURRENCY */}
+            <h3 className="text-3xl font-bold text-emerald-900 mt-1">{formatCurrency(totalSavings, userCurrency)}</h3>
+        </div>
         <div className="bg-blue-50 p-6 rounded-2xl shadow-sm border border-blue-100"><div className="flex justify-between items-start mb-4"><div className="p-2 bg-white rounded-lg shadow-sm"><Users className="w-6 h-6 text-blue-700" /></div></div><p className="text-sm text-blue-800 font-medium">Active Groups</p><h3 className="text-3xl font-bold text-blue-900 mt-1">{groups.length}</h3></div>
         <div className="bg-purple-50 p-6 rounded-2xl shadow-sm border border-purple-100"><div className="flex justify-between items-start mb-4"><div className="p-2 bg-white rounded-lg shadow-sm"><Calendar className="w-6 h-6 text-purple-700" /></div></div><p className="text-sm text-purple-800 font-medium">Next Payout</p><h3 className="text-3xl font-bold text-purple-900 mt-1">{nextPayoutDate}</h3></div>
       </div>
@@ -182,10 +198,26 @@ export default function DashboardPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {groups.map((group, index) => {
                     const colorClass = CARD_COLORS[index % CARD_COLORS.length];
+                    // ✅ Default to $ if group somehow has no currencySymbol
+                    const gSymbol = group.currencySymbol || "$"; 
+                    
                     return (
                     <Card key={group.id} className={`${colorClass} border-none shadow-lg text-white transition-transform active:scale-[0.98] md:hover:scale-[1.02] duration-200 flex flex-col`}>
                         <CardHeader className="pb-2"><div className="flex justify-between items-start"><CardTitle className="text-lg md:text-xl font-bold truncate pr-2">{group.name}</CardTitle><span className="bg-white/20 px-2 py-1 rounded text-xs font-medium backdrop-blur-sm whitespace-nowrap">{group.memberCount} Members</span></div><CardDescription className="text-slate-200 line-clamp-1 h-5 text-sm">{group.description || "No description"}</CardDescription></CardHeader>
-                        <CardContent className="flex-1 space-y-4 pt-4"><div className="grid grid-cols-2 gap-3"><div className="bg-white/10 p-3 rounded-lg backdrop-blur-sm"><p className="text-xs text-slate-300 flex items-center mb-1"><Wallet className="w-3 h-3 mr-1" /> Pool</p><p className="text-lg font-bold truncate">{formatCurrency(group.totalPool)}</p></div><div className="bg-white/10 p-3 rounded-lg backdrop-blur-sm"><p className="text-xs text-slate-300 flex items-center mb-1"><Users className="w-3 h-3 mr-1" /> My Contr.</p><p className="text-lg font-bold truncate">{formatCurrency(group.myContribution)}</p></div></div></CardContent>
+                        <CardContent className="flex-1 space-y-4 pt-4">
+                            <div className="grid grid-cols-2 gap-3">
+                                <div className="bg-white/10 p-3 rounded-lg backdrop-blur-sm">
+                                    <p className="text-xs text-slate-300 flex items-center mb-1"><Wallet className="w-3 h-3 mr-1" /> Pool</p>
+                                    {/* ✅ SHOW GROUP CURRENCY */}
+                                    <p className="text-lg font-bold truncate">{formatCurrency(group.totalPool, gSymbol)}</p>
+                                </div>
+                                <div className="bg-white/10 p-3 rounded-lg backdrop-blur-sm">
+                                    <p className="text-xs text-slate-300 flex items-center mb-1"><Users className="w-3 h-3 mr-1" /> My Contr.</p>
+                                    {/* ✅ SHOW GROUP CURRENCY */}
+                                    <p className="text-lg font-bold truncate">{formatCurrency(group.myContribution, gSymbol)}</p>
+                                </div>
+                            </div>
+                        </CardContent>
                         <CardFooter className="pt-2"><Button onClick={() => router.push(`/group/${group.id}`)} className="w-full bg-white text-[#122932] hover:bg-slate-100 font-bold shadow-sm">View Group <ArrowRight className="ml-2 h-4 w-4" /></Button></CardFooter>
                     </Card>
                     );

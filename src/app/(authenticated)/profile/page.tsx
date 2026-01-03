@@ -1,318 +1,268 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Loader2, Upload, Save, User, CreditCard } from "lucide-react";
+import { 
+  Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter 
+} from "@/components/ui/card";
+import { 
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue 
+} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { useRouter } from "next/navigation";
-
-// Firebase Imports
-import { getFirestore, doc, getDoc, setDoc } from "firebase/firestore";
-import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
-import { updateProfile } from "firebase/auth";
+import { Loader2, Save, Globe, Building2, User } from "lucide-react";
+import { getFirestore, doc, getDoc, updateDoc } from "firebase/firestore";
 import { getFirebaseApp } from "@/lib/firebase/client";
 
-// Define the structure for our user's extra profile data
-interface UserProfileData {
-  displayName: string;
-  phoneNumber: string;
-  innbucksAccountId: string;
-  ecocashNumber: string;
-  beneficiaryName: string;
-  beneficiaryPhone: string;
-  photoURL?: string;
-}
+// --- CONFIGURATION: Supported Countries ---
+const COUNTRIES = [
+  { name: "Zimbabwe", code: "+263", currency: "USD", symbol: "$" },
+  { name: "United Kingdom", code: "+44", currency: "GBP", symbol: "£" },
+  { name: "South Africa", code: "+27", currency: "ZAR", symbol: "R" },
+  { name: "United States", code: "+1", currency: "USD", symbol: "$" },
+  { name: "Australia", code: "+61", currency: "AUD", symbol: "A$" },
+  { name: "Canada", code: "+1", currency: "CAD", symbol: "C$" },
+];
 
 export default function ProfilePage() {
   const { user } = useAuth();
   const { toast } = useToast();
-  const router = useRouter();
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [loading, setLoading] = useState(false);
+  const [fetching, setFetching] = useState(true);
 
-  const [isLoading, setIsLoading] = useState(false);
-  const [isFetching, setIsFetching] = useState(true);
-  const [avatarFile, setAvatarFile] = useState<File | null>(null);
-  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  // --- FORM STATE ---
+  const [displayName, setDisplayName] = useState("");
+  
+  // Location & Contact
+  const [country, setCountry] = useState("Zimbabwe");
+  const [phoneCode, setPhoneCode] = useState("+263");
+  const [phoneNumber, setPhoneNumber] = useState("");
+  
+  // Universal Banking Details (Replaces Innbucks/Ecocash)
+  const [bankName, setBankName] = useState("");
+  const [accountNumber, setAccountNumber] = useState("");
+  const [sortCode, setSortCode] = useState(""); // Routing number, Swift, or Branch code
 
-  // Form State
-  const [formData, setFormData] = useState<UserProfileData>({
-    displayName: "",
-    phoneNumber: "",
-    innbucksAccountId: "",
-    ecocashNumber: "",
-    beneficiaryName: "",
-    beneficiaryPhone: "",
-  });
+  // Beneficiary (Next of Kin)
+  const [beneficiaryName, setBeneficiaryName] = useState("");
+  const [beneficiaryPhone, setBeneficiaryPhone] = useState("");
 
-  const db = getFirestore(getFirebaseApp());
-  const storage = getStorage(getFirebaseApp());
-
-  // 1. Fetch User Data on Mount
+  // 1. Fetch User Data
   useEffect(() => {
-    const fetchUserData = async () => {
-      if (!user) return;
-      setIsFetching(true);
-      try {
-        const userDocRef = doc(db, "users", user.uid);
-        const userDocSnap = await getDoc(userDocRef);
+    if (!user) return;
+    const fetchData = async () => {
+      const db = getFirestore(getFirebaseApp());
+      const docRef = doc(db, "users", user.uid);
+      const snap = await getDoc(docRef);
 
-        if (userDocSnap.exists()) {
-          // If data exists in Firestore, use it
-          setFormData(userDocSnap.data() as UserProfileData);
-        } else {
-          // Otherwise, pre-fill with basic Auth data
-          setFormData((prev) => ({
-            ...prev,
-            displayName: user.displayName || "",
-          }));
-        }
-        setAvatarPreview(user.photoURL || null);
-      } catch (error) {
-        console.error("Error fetching user data:", error);
-        toast({ variant: "destructive", title: "Error", description: "Failed to load profile data." });
-      } finally {
-        setIsFetching(false);
+      if (snap.exists()) {
+        const data = snap.data();
+        setDisplayName(data.displayName || user.displayName || "");
+        
+        // Load Country & Smart Phone Logic
+        const savedCountry = data.country || "Zimbabwe";
+        setCountry(savedCountry);
+        const countryConfig = COUNTRIES.find(c => c.name === savedCountry);
+        setPhoneCode(countryConfig?.code || "+263");
+        
+        // If phone number was saved with code, strip it for display if needed
+        // For simplicity, we just load what was saved or default
+        setPhoneNumber(data.phoneNumber?.replace(countryConfig?.code || "", "") || "");
+
+        // Load Bank Details
+        setBankName(data.bankName || "");
+        setAccountNumber(data.accountNumber || "");
+        setSortCode(data.sortCode || "");
+
+        // Load Beneficiary
+        setBeneficiaryName(data.beneficiaryName || "");
+        setBeneficiaryPhone(data.beneficiaryPhone || "");
       }
+      setFetching(false);
     };
+    fetchData();
+  }, [user]);
 
-    fetchUserData();
-  }, [user, db, toast]);
-
-  // Handle form input changes
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { id, value } = e.target;
-    setFormData((prev) => ({ ...prev, [id]: value }));
-  };
-
-  // Handle avatar file selection
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      setAvatarFile(file);
-      setAvatarPreview(URL.createObjectURL(file)); // Show local preview
+  // 2. Handle Country Change (Update Code & Symbol)
+  const handleCountryChange = (newCountry: string) => {
+    setCountry(newCountry);
+    const config = COUNTRIES.find(c => c.name === newCountry);
+    if (config) {
+        setPhoneCode(config.code);
     }
   };
 
-  // Trigger hidden file input click
-  const handleUploadClick = () => {
-    fileInputRef.current?.click();
-  };
-
-  // Get initials for avatar fallback
-  const getInitials = (name: string) => {
-    return name
-      ?.match(/(\b\S)?/g)
-      ?.join("")
-      ?.match(/(^\S|\S$)?/g)
-      ?.join("")
-      .toUpperCase() || "U";
-  };
-
-  // 2. Save Profile Changes
+  // 3. Save Changes
   const handleSave = async () => {
     if (!user) return;
-    setIsLoading(true);
+    setLoading(true);
+    const db = getFirestore(getFirebaseApp());
+
     try {
-      let newPhotoURL = user.photoURL;
+      // Find currency based on country
+      const config = COUNTRIES.find(c => c.name === country);
+      const currencySymbol = config?.symbol || "$";
+      const currencyCode = config?.currency || "USD";
 
-      // a) Upload new avatar if one was selected
-      if (avatarFile) {
-        const storageRef = ref(storage, `avatars/${user.uid}`);
-        const snapshot = await uploadBytes(storageRef, avatarFile);
-        newPhotoURL = await getDownloadURL(snapshot.ref);
-      }
+      // Combine Code + Number
+      const fullPhone = `${phoneCode}${phoneNumber.replace(/^0+/, '')}`; // Remove leading zero if user typed it
 
-      // b) Update Firebase Auth Profile (standard data)
-      await updateProfile(user, {
-        displayName: formData.displayName,
-        photoURL: newPhotoURL,
+      await updateDoc(doc(db, "users", user.uid), {
+        displayName,
+        country,
+        phoneNumber: fullPhone, // Save standard format e.g. +447700900000
+        
+        // New Banking Fields
+        bankName,
+        accountNumber,
+        sortCode,
+        
+        // Beneficiary
+        beneficiaryName,
+        beneficiaryPhone,
+
+        // Currency Preferences for Dashboard
+        currencyPreference: currencyCode,
+        currencySymbol: currencySymbol,
+        
+        updatedAt: new Date().toISOString()
       });
 
-      // c) Save all data to Firestore "users" collection
-      const userDocRef = doc(db, "users", user.uid);
-      await setDoc(userDocRef, {
-        ...formData,
-        photoURL: newPhotoURL,
-        updatedAt: new Date(),
-      }, { merge: true });
-
-      toast({ title: "Success", description: "Profile updated successfully." });
-      setAvatarFile(null); // Reset file input
-      router.refresh(); // Refresh server components to reflect changes
-
-    } catch (error: any) {
-      console.error("Error saving profile:", error);
-      toast({ variant: "destructive", title: "Error", description: error.message || "Failed to save profile." });
+      toast({ title: "Profile Updated", description: "Your global details are saved." });
+    } catch (error) {
+      console.error(error);
+      toast({ variant: "destructive", title: "Error", description: "Could not save profile." });
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
   };
 
-  if (isFetching) {
-    return (
-      <div className="flex justify-center items-center h-64">
-        <Loader2 className="h-8 w-8 animate-spin text-[#2C514C]" />
-      </div>
-    );
-  }
+  if (fetching) return <div className="p-10 flex justify-center"><Loader2 className="animate-spin text-[#2C514C]" /></div>;
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8 pb-10">
+    <div className="max-w-3xl mx-auto space-y-6 pb-20">
+      
+      {/* Header */}
       <div>
-        <h1 className="text-3xl font-bold text-[#122932]">My Profile</h1>
-        <p className="text-slate-500 mt-1">Manage your personal and financial details.</p>
+        <h1 className="text-3xl font-bold text-[#122932]">Your Profile</h1>
+        <p className="text-slate-500">Manage your global account settings.</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-        {/* --- LEFT COLUMN: Avatar & Personal Info --- */}
-        <Card className="md:col-span-1 border-none shadow-md overflow-hidden">
-          <CardHeader className="bg-[#2C514C] text-white text-center py-8">
-            <div className="flex flex-col items-center gap-4">
-              <Avatar className="h-32 w-32 border-4 border-white/20 shadow-sm">
-                <AvatarImage src={avatarPreview || ""} className="object-cover" />
-                <AvatarFallback className="bg-[#122932] text-white font-bold text-4xl">
-                  {getInitials(formData.displayName)}
-                </AvatarFallback>
-              </Avatar>
-              <input 
-                type="file" 
-                ref={fileInputRef} 
-                onChange={handleFileChange} 
-                accept="image/*" 
-                className="hidden" 
-              />
-              <Button 
-                variant="secondary" 
-                size="sm" 
-                onClick={handleUploadClick}
-                className="bg-white/10 hover:bg-white/20 text-white border-none"
-              >
-                <Upload className="w-4 h-4 mr-2" /> Change Avatar
-              </Button>
+      {/* --- 1. PERSONAL DETAILS --- */}
+      <Card>
+        <CardHeader>
+            <CardTitle className="flex items-center gap-2"><User className="w-5 h-5 text-green-700"/> Personal Details</CardTitle>
+            <CardDescription>Your public identity on Mukando.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                    <Label>Display Name</Label>
+                    <Input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="e.g. Rudo Dube" />
+                </div>
+                
+                <div className="space-y-2">
+                    <Label>Country of Residence</Label>
+                    <Select value={country} onValueChange={handleCountryChange}>
+                        <SelectTrigger>
+                            <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {COUNTRIES.map((c) => (
+                                <SelectItem key={c.name} value={c.name}>
+                                    {c.name} ({c.currency})
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </div>
+
+                <div className="space-y-2">
+                    <Label>Phone Number</Label>
+                    <div className="flex">
+                        <div className="bg-slate-100 border border-r-0 rounded-l-md px-3 flex items-center text-slate-500 font-mono text-sm">
+                            {phoneCode}
+                        </div>
+                        <Input 
+                            value={phoneNumber} 
+                            onChange={(e) => setPhoneNumber(e.target.value)} 
+                            className="rounded-l-none" 
+                            placeholder="771234567" 
+                            type="tel"
+                        />
+                    </div>
+                </div>
             </div>
-            <CardTitle className="mt-4 text-xl">{formData.displayName || "Mukando Member"}</CardTitle>
-            <CardDescription className="text-slate-200">{user?.email}</CardDescription>
-          </CardHeader>
-        </Card>
+        </CardContent>
+      </Card>
 
-        {/* --- RIGHT COLUMN: Form Fields --- */}
-        <div className="md:col-span-2 space-y-8">
-          
-          {/* 1. Personal Details Card */}
-          <Card className="border-none shadow-sm bg-[#f0fdf4]/50 border-l-4 border-l-[#2C514C]">
-            <CardHeader>
-              <CardTitle className="text-xl text-[#122932] flex items-center gap-2">
-                <User className="h-5 w-5 text-[#2C514C]" /> Personal Details
-              </CardTitle>
-              <CardDescription>Update your public profile information.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {/* --- 2. GLOBAL PAYOUT DETAILS --- */}
+      <Card>
+        <CardHeader>
+            <CardTitle className="flex items-center gap-2"><Building2 className="w-5 h-5 text-green-700"/> Payout Details</CardTitle>
+            <CardDescription>Where should Admins send your money when it's your turn?</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-2">
-                  <Label htmlFor="displayName" className="text-[#122932] font-medium">Display Name</Label>
-                  <Input 
-                    id="displayName" 
-                    value={formData.displayName} 
-                    onChange={handleChange} 
-                    className="bg-white border-slate-200 focus-visible:ring-[#2C514C]"
-                    placeholder="e.g., Tariro"
-                  />
+                    <Label>Bank / Service Name</Label>
+                    <Input 
+                        value={bankName} 
+                        onChange={(e) => setBankName(e.target.value)} 
+                        placeholder="e.g. Monzo, Chase, FNB, or WorldRemit" 
+                    />
                 </div>
+                
                 <div className="space-y-2">
-                  <Label htmlFor="phoneNumber" className="text-[#122932] font-medium">Phone Number</Label>
-                  <Input 
-                    id="phoneNumber" 
-                    value={formData.phoneNumber} 
-                    onChange={handleChange} 
-                    className="bg-white border-slate-200 focus-visible:ring-[#2C514C]"
-                    placeholder="e.g., 0777123456"
-                  />
+                    <Label>Account Number / IBAN</Label>
+                    <Input 
+                        value={accountNumber} 
+                        onChange={(e) => setAccountNumber(e.target.value)} 
+                        placeholder="Account Number" 
+                    />
                 </div>
-              </div>
-            </CardContent>
-          </Card>
 
-          {/* 2. Financial & Beneficiary Details Card */}
-          <Card className="border-none shadow-sm bg-[#f0fdf4]/50 border-l-4 border-l-[#2C514C]">
-            <CardHeader>
-              <CardTitle className="text-xl text-[#122932] flex items-center gap-2">
-                <CreditCard className="h-5 w-5 text-[#2C514C]" /> Financial & Beneficiary Details
-              </CardTitle>
-              <CardDescription>Manage your payout information and next of kin.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              
-              <div className="space-y-2">
-                <Label htmlFor="innbucksAccountId" className="text-[#122932] font-medium">InnBucks Account ID</Label>
-                <Input 
-                  id="innbucksAccountId" 
-                  value={formData.innbucksAccountId} 
-                  onChange={handleChange} 
-                  className="bg-white border-slate-200 focus-visible:ring-[#2C514C]"
-                  placeholder="e.g., 12345"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="ecocashNumber" className="text-[#122932] font-medium">EcoCash Number</Label>
-                <Input 
-                  id="ecocashNumber" 
-                  value={formData.ecocashNumber} 
-                  onChange={handleChange} 
-                  className="bg-white border-slate-200 focus-visible:ring-[#2C514C]"
-                  placeholder="e.g., 0771234567"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="beneficiaryName" className="text-[#122932] font-medium">Beneficiary Name</Label>
-                  <Input 
-                    id="beneficiaryName" 
-                    value={formData.beneficiaryName} 
-                    onChange={handleChange} 
-                    className="bg-white border-slate-200 focus-visible:ring-[#2C514C]"
-                    placeholder="e.g., Jane Doe"
-                  />
+                    <Label>Sort Code / Routing / Swift (Optional)</Label>
+                    <Input 
+                        value={sortCode} 
+                        onChange={(e) => setSortCode(e.target.value)} 
+                        placeholder="For international transfers" 
+                    />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="beneficiaryPhone" className="text-[#122932] font-medium">Beneficiary Phone</Label>
-                  <Input 
-                    id="beneficiaryPhone" 
-                    value={formData.beneficiaryPhone} 
-                    onChange={handleChange} 
-                    className="bg-white border-slate-200 focus-visible:ring-[#2C514C]"
-                    placeholder="e.g., 0777654321"
-                  />
-                </div>
-              </div>
-            </CardContent>
-            <CardFooter className="bg-[#2C514C]/5 p-6">
-              <Button 
-                onClick={handleSave} 
-                disabled={isLoading}
-                className="bg-[#2C514C] hover:bg-[#25423e] text-white font-bold px-8 py-2 h-auto text-base"
-              >
-                {isLoading ? (
-                  <>
-                    <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Saving...
-                  </>
-                ) : (
-                  <>
-                    <Save className="mr-2 h-5 w-5" /> Save Changes
-                  </>
-                )}
-              </Button>
-            </CardFooter>
-          </Card>
+            </div>
+            <div className="text-xs text-slate-500 bg-slate-50 p-3 rounded-md mt-2">
+                Note: These details are shared securely with your Group Admin only when a payout is due.
+            </div>
+        </CardContent>
+      </Card>
 
-        </div>
-      </div>
+      {/* --- 3. BENEFICIARY --- */}
+      <Card>
+        <CardHeader>
+            <CardTitle>Beneficiary (Next of Kin)</CardTitle>
+            <CardDescription>Who should we contact in case of emergency?</CardDescription>
+        </CardHeader>
+        <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-2">
+                <Label>Beneficiary Name</Label>
+                <Input value={beneficiaryName} onChange={(e) => setBeneficiaryName(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+                <Label>Beneficiary Phone</Label>
+                <Input value={beneficiaryPhone} onChange={(e) => setBeneficiaryPhone(e.target.value)} />
+            </div>
+        </CardContent>
+        <CardFooter>
+            <Button onClick={handleSave} disabled={loading} className="w-full md:w-auto bg-[#2C514C] hover:bg-[#23413d]">
+                {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                Save Changes
+            </Button>
+        </CardFooter>
+      </Card>
+
     </div>
   );
 }
