@@ -168,20 +168,17 @@ export function AdminForms({ groupId, currencySymbol = "$" }: { groupId: string,
     
     setLoading(true);
     try {
-        // Generate the schedule array
         const schedule = scheduleMembers.map((member, index) => {
-            // Calculate date: Start Date + (Index * 1 Month)
             const date = addMonths(new Date(startDate), index);
             return {
                 userId: member.userId,
                 displayName: member.displayName,
                 payoutDate: format(date, "yyyy-MM-dd"),
                 amountCents: parseFloat(estimatedAmount) * 100,
-                status: 'pending' // pending, paid, skipped
+                status: 'pending'
             };
         });
 
-        // Save to Group Doc
         await updateDoc(doc(db, "groups", groupId), {
             payoutSchedule: schedule
         });
@@ -205,7 +202,7 @@ export function AdminForms({ groupId, currencySymbol = "$" }: { groupId: string,
     }
   };
 
-  // --- 4. ACTION HANDLERS (Approve/Reject/Manual) ---
+  // --- 4. ACTION HANDLERS ---
   const saveDueDay = async () => {
     try { 
         await updateDoc(doc(db, "groups", groupId), { paymentDueDay: parseInt(dueDay) }); 
@@ -229,52 +226,66 @@ export function AdminForms({ groupId, currencySymbol = "$" }: { groupId: string,
 
       const safeAmount = Number(tx.amountCents) || 0;
 
-      // 1. Update Transaction Status
+      // 1. Identify Target User (Self-Healing Logic)
+      let targetUserId = tx.userId;
+      if (!targetUserId && tx.userDisplayName) {
+          // Fallback: Try to find user by name if ID is missing (legacy data fix)
+          const found = members.find(m => m.name === tx.userDisplayName);
+          if (found) {
+              targetUserId = found.id;
+              // Fix the transaction record permanently
+              await updateDoc(doc(db, 'groups', groupId, 'transactions', tx.id), { userId: targetUserId });
+              console.log(`Auto-healed transaction ${tx.id} with userId ${targetUserId}`);
+          }
+      }
+
+      // 2. Update Transaction Status
       await updateDoc(doc(db, 'groups', groupId, 'transactions', tx.id), {
           status: 'completed',
           approvedAt: serverTimestamp(),
           date: confirmedDateStr,
-          pointsEarned
+          pointsEarned,
+          userId: targetUserId // Ensure ID is saved if we just found it
       });
 
-      // 2. Update Group Balance
+      // 3. Update Group Balance
       await updateDoc(doc(db, 'groups', groupId), { currentBalanceCents: increment(safeAmount) });
 
-      // 3. Update Member Balance
-      try { 
-          await updateDoc(doc(db, 'groups', groupId, 'members', tx.userId), { 
-              contributionBalanceCents: increment(safeAmount), 
-              lastPaymentDate: serverTimestamp() 
-          }); 
-      } catch (err) { console.warn("Member profile update warning:", err); }
+      // 4. Update Member Balance (Only if we have a valid ID)
+      if (targetUserId) {
+        try { 
+            await updateDoc(doc(db, 'groups', groupId, 'members', targetUserId), { 
+                contributionBalanceCents: increment(safeAmount), 
+                lastPaymentDate: serverTimestamp() 
+            }); 
+        } catch (err) { console.warn("Member profile update warning:", err); }
 
-      // 4. Update Global Credit Score (Fix: Better Error Handling & Explicit Check)
-      try {
-        if (!tx.userId) throw new Error("Missing User ID for score update");
+        // 5. Update Global Credit Score
+        try {
+            const userRef = doc(db, 'users', targetUserId);
+            const userSnap = await getDoc(userRef);
+            
+            let currentScore = 400;
+            if (userSnap.exists() && userSnap.data().creditScore !== undefined) {
+                currentScore = userSnap.data().creditScore;
+            }
 
-        const userRef = doc(db, 'users', tx.userId);
-        const userSnap = await getDoc(userRef);
-        
-        // Default to 400 if user has no score yet
-        let currentScore = 400;
-        if (userSnap.exists() && userSnap.data().creditScore !== undefined) {
-            currentScore = userSnap.data().creditScore;
+            const newScore = Math.min(1250, currentScore + pointsEarned);
+            await setDoc(userRef, { creditScore: newScore }, { merge: true });
+            console.log(`Updated score for ${targetUserId}: ${currentScore} -> ${newScore}`);
+            
+        } catch (scoreErr) {
+            console.error("Score update failed:", scoreErr);
+            scoreMessage = "Payment Approved (Score update failed)";
+            toast({ variant: "destructive", title: "Score Error", description: "User ID invalid or profile deleted." });
         }
-
-        const newScore = Math.min(1250, currentScore + pointsEarned);
-        
-        // Use setDoc with merge to ensure document exists
-        await setDoc(userRef, { creditScore: newScore }, { merge: true });
-        
-        console.log(`Updated score for ${tx.userId}: ${currentScore} -> ${newScore}`);
-        
-      } catch (scoreErr) {
-        console.error("Score update failed:", scoreErr);
-        scoreMessage = "Payment Approved (Score update failed)";
-        toast({ variant: "destructive", title: "Score Error", description: "Payment approved, but credit score could not be updated." });
+      } else {
+          // If we still can't find a user ID, we approve the money but skip the score
+          scoreMessage = "Payment Approved (No Score)";
+          toast({ variant: "destructive", title: "Warning", description: "Payment recorded, but could not link to a user profile for scoring." });
       }
 
-      // 5. Audit Log
+      // 6. Audit Log
       if (user) await logActivity({ 
           groupId, 
           action: "PAYMENT_APPROVED" as any, 
@@ -282,8 +293,7 @@ export function AdminForms({ groupId, currencySymbol = "$" }: { groupId: string,
           performedBy: { uid: user.uid, displayName: user.displayName || "Admin" } 
       });
 
-      // Only show success toast if we didn't already show an error toast for the score
-      if (!scoreMessage.includes("failed")) {
+      if (!scoreMessage.includes("failed") && !scoreMessage.includes("No Score")) {
           toast({ title: "Approved", description: scoreMessage });
       }
 
@@ -301,10 +311,12 @@ export function AdminForms({ groupId, currencySymbol = "$" }: { groupId: string,
     try {
         await updateDoc(doc(db, 'groups', groupId, 'transactions', txId), { status: 'rejected' });
         try { 
-            const userRef = doc(db, 'users', userId);
-            const userSnap = await getDoc(userRef);
-            let currentScore = userSnap.exists() && userSnap.data().creditScore !== undefined ? userSnap.data().creditScore : 400;
-            await setDoc(userRef, { creditScore: Math.max(0, currentScore - 10) }, { merge: true });
+            if (userId) {
+                const userRef = doc(db, 'users', userId);
+                const userSnap = await getDoc(userRef);
+                let currentScore = userSnap.exists() && userSnap.data().creditScore !== undefined ? userSnap.data().creditScore : 400;
+                await setDoc(userRef, { creditScore: Math.max(0, currentScore - 10) }, { merge: true });
+            }
         } catch(e) {}
         toast({ title: "Rejected", description: "Transaction rejected. (-10 pts)" });
     } catch (e) { console.error(e); } finally { setLoading(false); }
@@ -330,7 +342,7 @@ export function AdminForms({ groupId, currencySymbol = "$" }: { groupId: string,
         await updateDoc(doc(db, 'groups', groupId), { currentBalanceCents: increment(amountCents) });
         try { await updateDoc(doc(db, 'groups', groupId, 'members', selectedMemberId), { contributionBalanceCents: increment(amountCents), lastPaymentDate: serverTimestamp() }); } catch(e){}
         
-        // Manual Entry Score Update (Hardened)
+        // Manual Entry Score Update
         try {
             if (!selectedMemberId) throw new Error("No Member ID");
             const userRef = doc(db, 'users', selectedMemberId);
