@@ -221,6 +221,7 @@ export function AdminForms({ groupId, currencySymbol = "$" }: { groupId: string,
       const paymentDay = confirmedDate.getDate();
       const deadline = parseInt(dueDay) || 31;
 
+      // Calculate Points
       let pointsEarned = 5;
       let scoreMessage = "Paid Very Late (+5 Points)";
       if (paymentDay <= deadline) { pointsEarned = 20; scoreMessage = "Excellent! Paid On Time (+20 Points)"; } 
@@ -228,25 +229,70 @@ export function AdminForms({ groupId, currencySymbol = "$" }: { groupId: string,
 
       const safeAmount = Number(tx.amountCents) || 0;
 
+      // 1. Update Transaction Status
       await updateDoc(doc(db, 'groups', groupId, 'transactions', tx.id), {
           status: 'completed',
           approvedAt: serverTimestamp(),
           date: confirmedDateStr,
           pointsEarned
       });
+
+      // 2. Update Group Balance
       await updateDoc(doc(db, 'groups', groupId), { currentBalanceCents: increment(safeAmount) });
-      try { await updateDoc(doc(db, 'groups', groupId, 'members', tx.userId), { contributionBalanceCents: increment(safeAmount), lastPaymentDate: serverTimestamp() }); } catch (err) {}
+
+      // 3. Update Member Balance
+      try { 
+          await updateDoc(doc(db, 'groups', groupId, 'members', tx.userId), { 
+              contributionBalanceCents: increment(safeAmount), 
+              lastPaymentDate: serverTimestamp() 
+          }); 
+      } catch (err) { console.warn("Member profile update warning:", err); }
+
+      // 4. Update Global Credit Score (Fix: Better Error Handling & Explicit Check)
       try {
+        if (!tx.userId) throw new Error("Missing User ID for score update");
+
         const userRef = doc(db, 'users', tx.userId);
         const userSnap = await getDoc(userRef);
-        let currentScore = userSnap.exists() && userSnap.data().creditScore !== undefined ? userSnap.data().creditScore : 400;
-        await setDoc(userRef, { creditScore: Math.min(1250, currentScore + pointsEarned) }, { merge: true });
-      } catch (scoreErr) {}
+        
+        // Default to 400 if user has no score yet
+        let currentScore = 400;
+        if (userSnap.exists() && userSnap.data().creditScore !== undefined) {
+            currentScore = userSnap.data().creditScore;
+        }
 
-      if (user) await logActivity({ groupId, action: "PAYMENT_APPROVED" as any, description: `Approved ${formatCurrency(safeAmount, currencySymbol)} from ${tx.userDisplayName}`, performedBy: { uid: user.uid, displayName: user.displayName || "Admin" } });
+        const newScore = Math.min(1250, currentScore + pointsEarned);
+        
+        // Use setDoc with merge to ensure document exists
+        await setDoc(userRef, { creditScore: newScore }, { merge: true });
+        
+        console.log(`Updated score for ${tx.userId}: ${currentScore} -> ${newScore}`);
+        
+      } catch (scoreErr) {
+        console.error("Score update failed:", scoreErr);
+        scoreMessage = "Payment Approved (Score update failed)";
+        toast({ variant: "destructive", title: "Score Error", description: "Payment approved, but credit score could not be updated." });
+      }
 
-      toast({ title: "Approved", description: scoreMessage });
-    } catch (error) { toast({ title: "Error", description: "Failed to approve.", variant: "destructive" }); } finally { setLoading(false); }
+      // 5. Audit Log
+      if (user) await logActivity({ 
+          groupId, 
+          action: "PAYMENT_APPROVED" as any, 
+          description: `Approved ${formatCurrency(safeAmount, currencySymbol)} from ${tx.userDisplayName}`, 
+          performedBy: { uid: user.uid, displayName: user.displayName || "Admin" } 
+      });
+
+      // Only show success toast if we didn't already show an error toast for the score
+      if (!scoreMessage.includes("failed")) {
+          toast({ title: "Approved", description: scoreMessage });
+      }
+
+    } catch (error) { 
+        console.error("Critical Approval Error", error);
+        toast({ title: "Error", description: "Failed to approve transaction.", variant: "destructive" }); 
+    } finally { 
+        setLoading(false); 
+    }
   };
 
   const rejectTransaction = async (txId: string, userId: string) => {
@@ -283,12 +329,18 @@ export function AdminForms({ groupId, currencySymbol = "$" }: { groupId: string,
         });
         await updateDoc(doc(db, 'groups', groupId), { currentBalanceCents: increment(amountCents) });
         try { await updateDoc(doc(db, 'groups', groupId, 'members', selectedMemberId), { contributionBalanceCents: increment(amountCents), lastPaymentDate: serverTimestamp() }); } catch(e){}
+        
+        // Manual Entry Score Update (Hardened)
         try {
+            if (!selectedMemberId) throw new Error("No Member ID");
             const userRef = doc(db, 'users', selectedMemberId);
             const userSnap = await getDoc(userRef);
             let currentScore = userSnap.exists() && userSnap.data().creditScore !== undefined ? userSnap.data().creditScore : 400;
             await setDoc(userRef, { creditScore: Math.min(1250, currentScore + 5) }, { merge: true });
-        } catch(e){}
+        } catch(e){
+            console.error("Manual Entry Score Update Failed:", e);
+        }
+
         if (user) await logActivity({ groupId, action: "PAYMENT_RECORDED" as any, description: `Manually recorded ${formatCurrency(amountCents, currencySymbol)} for ${selectedMember?.name}`, performedBy: { uid: user.uid, displayName: user.displayName || "Admin" } });
         toast({ title: "Recorded", description: "Manual payment saved (+5 pts)." });
         setAmount(''); setReference('');
