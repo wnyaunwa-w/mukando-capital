@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { 
   Users, Loader2, ShieldCheck, User, LogOut, Trash2, MoreVertical, ShieldPlus, 
-  Trophy, CheckCircle2, Shield 
+  Trophy, CheckCircle2, Shield, Star
 } from "lucide-react";
 import { useAuth } from "@/components/auth-provider";
 import { useToast } from "@/hooks/use-toast";
@@ -43,7 +43,7 @@ interface Member {
   email?: string;
   photoURL?: string; 
   contributionBalanceCents?: number;
-  score?: number; // ✅ Added Score Field
+  score?: number; 
 }
 
 export function MembersList({ groupId, currencySymbol = "$" }: { groupId: string, currencySymbol?: string }) {
@@ -67,7 +67,6 @@ export function MembersList({ groupId, currencySymbol = "$" }: { groupId: string
         ...d.data()
       })) as Member[];
 
-      // Enrich with User Profile Data (Name, Photo, Score)
       const enrichedMembers = await Promise.all(basicMembers.map(async (member) => {
         let profileData = { 
             displayName: member.displayName || "Member", 
@@ -87,13 +86,9 @@ export function MembersList({ groupId, currencySymbol = "$" }: { groupId: string
             }
         } catch (e) { console.error("Error fetching profile:", e); }
 
-        return { 
-            ...member, 
-            ...profileData
-        };
+        return { ...member, ...profileData };
       }));
 
-      // Sort: Admins first, then by Score
       enrichedMembers.sort((a, b) => {
         if (a.role === 'admin' && b.role !== 'admin') return -1;
         if (a.role !== 'admin' && b.role === 'admin') return 1;
@@ -102,14 +97,11 @@ export function MembersList({ groupId, currencySymbol = "$" }: { groupId: string
 
       setMembers(enrichedMembers);
       setLoading(false);
-    }, (error) => {
-        console.log("Snapshot error:", error);
-    });
+    }, (error) => { console.log("Snapshot error:", error); });
 
     return () => unsubscribe();
   }, [groupId, user]);
 
-  // --- ACTIONS ---
   const handleLeaveGroup = async () => {
     if (!user || !confirm("Are you sure you want to leave this group?")) return;
     setProcessingId("leave");
@@ -143,17 +135,54 @@ export function MembersList({ groupId, currencySymbol = "$" }: { groupId: string
     } catch (error) { toast({ variant: "destructive", title: "Error", description: "Failed to promote." }); } finally { setProcessingId(null); }
   };
 
-  // --- BADGE RENDERER ---
+  // --- UPDATED BADGE RENDERER ---
   const renderScoreBadge = (score: number) => {
-    if (score >= 700) return <div className="flex items-center gap-1 text-amber-500 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200 text-[10px] font-semibold"><Trophy className="w-3 h-3 fill-amber-500" /> Elite</div>;
-    if (score >= 500) return <div className="flex items-center gap-1 text-green-700 bg-green-50 px-2 py-0.5 rounded-full border border-green-200 text-[10px] font-medium"><CheckCircle2 className="w-3 h-3" /> Reliable</div>;
-    if (score >= 400) return <div className="flex items-center gap-1 text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full text-[10px]"><Shield className="w-3 h-3" /> Building</div>;
-    return null;
+    // 700+ : Elite (Gold)
+    if (score >= 700) {
+        return (
+            <div className="flex flex-col items-end">
+                <span className="text-[9px] text-slate-400 uppercase font-bold mb-0.5">Mukando Score</span>
+                <div className="flex items-center gap-1 text-amber-600 bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200 text-xs font-bold">
+                    <Trophy className="w-3.5 h-3.5 fill-amber-500" /> Elite
+                </div>
+            </div>
+        );
+    }
+    // 550 - 699 : Very Good (Teal)
+    if (score >= 550) {
+        return (
+            <div className="flex flex-col items-end">
+                <span className="text-[9px] text-slate-400 uppercase font-bold mb-0.5">Mukando Score</span>
+                <div className="flex items-center gap-1 text-teal-700 bg-teal-50 px-2.5 py-1 rounded-full border border-teal-200 text-xs font-bold">
+                    <Star className="w-3.5 h-3.5 fill-teal-500" /> Very Good
+                </div>
+            </div>
+        );
+    }
+    // 400 - 549 : Good (Green) - Matches your Dashboard
+    if (score >= 400) {
+        return (
+            <div className="flex flex-col items-end">
+                <span className="text-[9px] text-slate-400 uppercase font-bold mb-0.5">Mukando Score</span>
+                <div className="flex items-center gap-1 text-green-700 bg-green-50 px-2.5 py-1 rounded-full border border-green-200 text-xs font-bold">
+                    <CheckCircle2 className="w-3.5 h-3.5" /> Good
+                </div>
+            </div>
+        );
+    }
+    // < 400 : New Member (Grey)
+    return (
+        <div className="flex flex-col items-end opacity-70">
+            <span className="text-[9px] text-slate-400 uppercase font-bold mb-0.5">Mukando Score</span>
+            <div className="flex items-center gap-1 text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full border border-slate-200 text-xs font-medium">
+                <Shield className="w-3 h-3" /> New Member
+            </div>
+        </div>
+    );
   };
 
   if (loading && !members.length) return <div className="p-10 flex justify-center"><Loader2 className="h-6 w-6 animate-spin text-slate-400" /></div>;
 
-  // Determine current user's role for permission checks
   const currentUserRole = members.find(m => m.userId === user?.uid)?.role || 'member';
 
   return (
@@ -190,7 +219,7 @@ export function MembersList({ groupId, currencySymbol = "$" }: { groupId: string
                         {member.userId === user?.uid && <span className="text-xs text-slate-400 font-normal ml-1">(You)</span>}
                     </p>
                     {/* Badge next to name on mobile */}
-                    <div className="md:hidden">{renderScoreBadge(member.score || 400)}</div>
+                    <div className="md:hidden scale-75 origin-left">{renderScoreBadge(member.score || 400)}</div>
                 </div>
 
                 <div className="flex items-center gap-2 mt-1">
@@ -213,21 +242,24 @@ export function MembersList({ groupId, currencySymbol = "$" }: { groupId: string
             </div>
 
             {/* RIGHT: Score Badge & Actions */}
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-4">
                 
-                {/* 1. Score Badge (Hidden on mobile to save space) */}
+                {/* 1. Score Badge (Hidden on mobile) */}
                 <div className="hidden md:block">
                     {renderScoreBadge(member.score || 400)}
                 </div>
 
                 {/* 2. Admin Vision: Exact Score */}
                 {(currentUserRole === 'admin' || user?.uid === member.userId) && (
-                    <div className="hidden sm:block text-[10px] font-mono text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded border">
-                        {member.score || 400}
+                    <div className="hidden sm:flex flex-col items-center">
+                        <span className="text-[8px] text-slate-400 font-bold uppercase">Points</span>
+                        <div className="text-xs font-mono font-bold text-slate-600 bg-slate-100 px-2 py-1 rounded border">
+                            {member.score || 400}
+                        </div>
                     </div>
                 )}
 
-                {/* 3. Actions Menu (Only for Admins) */}
+                {/* 3. Actions Menu */}
                 {currentUserRole === 'admin' && member.userId !== user?.uid && (
                     <DropdownMenu>
                     <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400"><MoreVertical className="h-4 w-4" /></Button></DropdownMenuTrigger>
