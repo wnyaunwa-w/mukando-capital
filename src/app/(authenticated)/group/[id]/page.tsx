@@ -46,7 +46,8 @@ import { cn } from "@/lib/utils";
 // Component Imports
 import { TransactionLedger } from "./transaction-ledger";
 import { AdminForms } from "./admin-forms";
-import { MembersList } from "./members-list";
+// ✅ FIX: Reverted to plural "members-list" to match your file name
+import { MembersList } from "./members-list"; 
 import { PayoutScheduleTab } from "./payout-schedule-tab";
 import { ClaimPaymentDialog } from "./claim-payment-dialog";
 import { PayFeeDialog } from "./pay-fee-dialog";
@@ -265,8 +266,6 @@ function GroupContent() {
   const renderFeeButtonText = () => {
       if (isPending) return "Payment Under Review";
       if (platformFee === 0) return "Activate Access (Free)";
-      // Platform fee is usually kept in USD ($), but we could match group currency if desired.
-      // For now, we keep Platform Fee in default ($) to separate Platform Costs from Group Ledger.
       return `Pay Platform Fee (${formatCurrency(platformFee)})`;
   };
 
@@ -319,7 +318,6 @@ function GroupContent() {
                     <CardTitle className="text-lg">Payment Incoming!</CardTitle>
                 </div>
                 <CardDescription className="text-green-700">
-                    {/* ✅ GLOBAL: Display Payout in correct currency */}
                     The Admin has marked a payout of <strong>{formatCurrency(pendingPayout.amountCents, currencySymbol)}</strong> to you.
                 </CardDescription>
             </CardHeader>
@@ -337,14 +335,12 @@ function GroupContent() {
         <Card className="bg-[#2C514C] text-white border-none shadow-lg w-full">
             <CardHeader className="py-4"><CardTitle className="text-slate-200 text-sm uppercase">Total Balance</CardTitle></CardHeader>
             <CardContent className="pb-4 pt-0">
-                {/* ✅ GLOBAL: Display Balance in correct currency */}
                 <div className="text-3xl font-bold text-white truncate">{formatCurrency(group.currentBalanceCents || 0, currencySymbol)}</div>
             </CardContent>
         </Card>
         <Card className="bg-[#576066] text-white border-none shadow-lg w-full">
             <CardHeader className="py-4 flex flex-row items-center justify-between"><CardTitle className="text-slate-200 text-sm uppercase">My Contribution</CardTitle>{userProfile?.creditScore !== undefined && <CreditScoreBadge score={userProfile.creditScore} />}</CardHeader>
             <CardContent className="pb-4 pt-0">
-                {/* ✅ GLOBAL: Display Contribution in correct currency */}
                 <div className="text-3xl font-bold text-white truncate">{formatCurrency(currentMember?.contributionBalanceCents || 0, currencySymbol)}</div>
                 {nextDueDateDisplay && (<div className="mt-2 flex items-center gap-1.5 text-xs text-slate-300 font-medium bg-white/10 px-2 py-1 rounded w-fit"><CalendarClock className="w-3.5 h-3.5" /><span>Next Due: {nextDueDateDisplay}</span></div>)}
             </CardContent>
@@ -393,7 +389,6 @@ function GroupContent() {
         </Tabs>
       )}
 
-      {/* ✅ GLOBAL: Pass currencySymbol to dialogs */}
       <ClaimPaymentDialog isOpen={isClaimOpen} onOpenChange={setIsClaimOpen} groupId={group.id} isSubscriptionLocked={isLocked} currencySymbol={currencySymbol} />
       <PayFeeDialog isOpen={isPayFeeOpen} onOpenChange={setIsPayFeeOpen} groupId={group.id} />
       <PayoutDialog isOpen={isPayoutOpen} onOpenChange={setIsPayoutOpen} groupId={group.id} currencySymbol={currencySymbol} />
