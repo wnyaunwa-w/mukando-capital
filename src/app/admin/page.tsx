@@ -83,7 +83,7 @@ export default function SuperAdminPage() {
                 displayName: safeName || "User", 
                 email: d.email || "", 
                 phoneNumber: d.phoneNumber || "N/A", 
-                country: d.country || "Unknown", // ✅ Added Country
+                country: d.country || "Unknown", 
                 role: d.role || "member", 
                 status: d.status || "active", 
                 joinedAt: d.createdAt 
@@ -275,12 +275,24 @@ export default function SuperAdminPage() {
                 <CardContent className="p-0">
                     <div className="overflow-x-auto">
                         <table className="w-full text-sm text-left">
-                            <thead className="bg-slate-100 border-b"><tr><th className="p-3">Name</th><th className="p-3">Email</th><th className="p-3">Country</th><th className="p-3">Status</th><th className="p-3 text-right">Action</th></tr></thead>
+                            {/* ✅ ADDED "Phone" to Header */}
+                            <thead className="bg-slate-100 border-b">
+                                <tr>
+                                    <th className="p-3">Name</th>
+                                    <th className="p-3">Email</th>
+                                    <th className="p-3">Phone</th>
+                                    <th className="p-3">Country</th>
+                                    <th className="p-3">Status</th>
+                                    <th className="p-3 text-right">Action</th>
+                                </tr>
+                            </thead>
                             <tbody>
                                 {usersList.map(u => (
                                     <tr key={u.uid} className="border-b">
                                         <td className="p-3">{u.displayName}</td>
                                         <td className="p-3">{u.email}</td>
+                                        {/* ✅ ADDED Phone Number Cell */}
+                                        <td className="p-3 text-slate-500 font-mono text-xs">{u.phoneNumber || "-"}</td>
                                         <td className="p-3"><div className="flex items-center gap-1"><Globe className="w-3 h-3 text-slate-400" />{u.country || "Unknown"}</div></td>
                                         <td className="p-3"><Badge variant={u.status === 'active' ? 'outline' : 'destructive'}>{u.status}</Badge></td>
                                         <td className="p-3 text-right">
